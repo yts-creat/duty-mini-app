@@ -116,7 +116,10 @@ function toPublicUser(user) {
 }
 
 function parseDateTime(dateStr, timeStr) {
-  return new Date(`${dateStr}T${timeStr}:00`);
+  const [year, month, day] = dateStr.split("-").map((n) => Number(n));
+  const [hours, minutes] = timeStr.split(":").map((n) => Number(n));
+  // Treat schedule input as China Standard Time (UTC+8) to avoid host timezone drift.
+  return new Date(Date.UTC(year, month - 1, day, hours - 8, minutes, 0));
 }
 
 function addMinutes(date, minutes) {
@@ -124,7 +127,10 @@ function addMinutes(date, minutes) {
 }
 
 function formatWindow(date) {
-  return date.toLocaleString("zh-CN", { hour12: false });
+  return date.toLocaleString("zh-CN", {
+    hour12: false,
+    timeZone: "Asia/Shanghai"
+  });
 }
 
 function buildTimeWindow(schedule, type) {
