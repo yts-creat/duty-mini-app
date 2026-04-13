@@ -40,8 +40,11 @@ const els = {
   currentScheduleInfo: document.getElementById("currentScheduleInfo"),
   mySlots: document.getElementById("mySlots"),
   publicTableBody: document.getElementById("publicTableBody"),
+  publicGuestTableBody: document.getElementById("publicGuestTableBody"),
   refreshPublicBtn: document.getElementById("refreshPublicBtn"),
+  refreshPublicGuestBtn: document.getElementById("refreshPublicGuestBtn"),
   exportPublicBtn: document.getElementById("exportPublicBtn"),
+  exportPublicGuestBtn: document.getElementById("exportPublicGuestBtn"),
   importTitle: document.getElementById("importTitle"),
   importWeekStart: document.getElementById("importWeekStart"),
   importImageFile: document.getElementById("importImageFile"),
@@ -212,13 +215,13 @@ function renderMySlots() {
     .join("");
 }
 
-function renderPublicTable() {
+function renderPublicTableIn(target) {
+  if (!target) return;
   if (!state.publicRows.length) {
-    els.publicTableBody.innerHTML = '<tr><td colspan="9">暂无公共数据</td></tr>';
+    target.innerHTML = '<tr><td colspan="9">暂无公共数据</td></tr>';
     return;
   }
-
-  els.publicTableBody.innerHTML = state.publicRows
+  target.innerHTML = state.publicRows
     .map((row) => {
       const overtimeText =
         row.overtimeMinutes > 0
@@ -239,6 +242,20 @@ function renderPublicTable() {
       `;
     })
     .join("");
+}
+
+function renderPublicTable() {
+  renderPublicTableIn(els.publicTableBody);
+  renderPublicTableIn(els.publicGuestTableBody);
+}
+
+async function fetchPublicOverview() {
+  const resp = await fetch("/api/public/overview");
+  const data = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    throw new Error(data.message || "获取公共看板失败");
+  }
+  return data;
 }
 
 function renderImportRows() {
@@ -274,7 +291,7 @@ async function refreshAll() {
   const [scheduleRes, myRes, publicRes] = await Promise.all([
     api("/api/schedule/current"),
     api("/api/my/slots"),
-    api("/api/public/overview")
+    fetchPublicOverview()
   ]);
   state.currentSchedule = scheduleRes.currentSchedule;
   state.mySlots = myRes.slots || [];
@@ -284,10 +301,17 @@ async function refreshAll() {
   renderPublicTable();
 }
 
+async function refreshPublicOnly() {
+  const publicRes = await fetchPublicOverview();
+  state.publicRows = publicRes.rows || [];
+  renderPublicTable();
+}
+
 async function tryRestore() {
   const savedUser = localStorage.getItem("user");
   if (!state.token || !savedUser) {
     clearSession();
+    await refreshPublicOnly().catch(() => {});
     return;
   }
   try {
@@ -299,6 +323,7 @@ async function tryRestore() {
     await refreshAll();
   } catch (_error) {
     clearSession();
+    await refreshPublicOnly().catch(() => {});
   }
 }
 
@@ -475,11 +500,7 @@ async function saveOvertime(slotId) {
 
 async function exportPublicCsv() {
   try {
-    const resp = await fetch("/api/public/export.csv", {
-      headers: {
-        Authorization: `Bearer ${state.token}`
-      }
-    });
+    const resp = await fetch("/api/public/export.csv");
     if (!resp.ok) {
       const data = await resp.json().catch(() => ({}));
       throw new Error(data.message || "导出失败");
@@ -507,6 +528,7 @@ function bindEvents() {
   els.logoutBtn.addEventListener("click", () => {
     clearSession();
     toast("已退出登录");
+    refreshPublicOnly().catch(() => {});
   });
 
   els.tabMine.addEventListener("click", () => setTab("mine"));
@@ -519,13 +541,26 @@ function bindEvents() {
 
   els.refreshPublicBtn.addEventListener("click", async () => {
     try {
-      await refreshAll();
+      if (state.user) {
+        await refreshAll();
+      } else {
+        await refreshPublicOnly();
+      }
       toast("数据已刷新");
     } catch (error) {
       toast(error.message, true);
     }
   });
+  els.refreshPublicGuestBtn.addEventListener("click", async () => {
+    try {
+      await refreshPublicOnly();
+      toast("公共看板已刷新");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
   els.exportPublicBtn.addEventListener("click", exportPublicCsv);
+  els.exportPublicGuestBtn.addEventListener("click", exportPublicCsv);
 
   els.mySlots.addEventListener("click", (event) => {
     const target = event.target;
@@ -560,6 +595,7 @@ function bootstrap() {
   setTab("mine");
   setDefaultImportDate();
   tryRestore();
+  refreshPublicOnly().catch(() => {});
 }
 
 bootstrap();

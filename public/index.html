@@ -49,6 +49,34 @@
           <label>密码<input id="loginPassword" type="password" placeholder="请输入密码" required /></label>
           <button type="submit" class="primary">登录</button>
         </form>
+
+        <div class="card">
+          <div class="inline-head">
+            <h2>公共看板（无需登录）</h2>
+            <div class="inline-actions">
+              <button id="refreshPublicGuestBtn" type="button" class="secondary">刷新</button>
+              <button id="exportPublicGuestBtn" type="button" class="primary">导出统计</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>日期</th>
+                  <th>班次</th>
+                  <th>姓名</th>
+                  <th>手机号</th>
+                  <th>部门</th>
+                  <th>状态</th>
+                  <th>进站</th>
+                  <th>出站</th>
+                  <th>加班</th>
+                </tr>
+              </thead>
+              <tbody id="publicGuestTableBody"></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <section id="appView" class="hidden">

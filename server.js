@@ -55,6 +55,14 @@ app.disable("x-powered-by");
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
+process.on("uncaughtException", (error) => {
+  console.error("[UNCAUGHT_EXCEPTION]", error?.message || error);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("[UNHANDLED_REJECTION]", reason);
+});
+
 function ensureDbFile() {
   try {
     const dir = path.dirname(DB_PATH);
@@ -307,6 +315,74 @@ function buildDayCenters(words) {
   return centers;
 }
 
+function runKMeans1D(values, k, maxIter = 24) {
+  if (!Array.isArray(values) || values.length < k || k <= 0) return null;
+  const sorted = values.slice().sort((a, b) => a - b);
+  let centers = [];
+  for (let i = 0; i < k; i += 1) {
+    const idx = Math.floor((i * (sorted.length - 1)) / Math.max(k - 1, 1));
+    centers.push(sorted[idx]);
+  }
+
+  for (let iter = 0; iter < maxIter; iter += 1) {
+    const groups = Array.from({ length: k }, () => []);
+    for (const v of sorted) {
+      let best = 0;
+      let bestDist = Number.POSITIVE_INFINITY;
+      for (let i = 0; i < k; i += 1) {
+        const dist = Math.abs(v - centers[i]);
+        if (dist < bestDist) {
+          bestDist = dist;
+          best = i;
+        }
+      }
+      groups[best].push(v);
+    }
+    const next = centers.map((c, i) => {
+      const g = groups[i];
+      if (!g.length) return c;
+      return g.reduce((a, b) => a + b, 0) / g.length;
+    });
+    const moved = next.reduce((sum, c, i) => sum + Math.abs(c - centers[i]), 0);
+    centers = next;
+    if (moved < 1) break;
+  }
+  centers.sort((a, b) => a - b);
+  return centers;
+}
+
+function buildDayCentersByNameWords(words) {
+  const nameWords = words.filter((w) => extractName(w.text));
+  if (nameWords.length < 7) return null;
+  return runKMeans1D(
+    nameWords.map((w) => w.cx),
+    7
+  );
+}
+
+function buildSlotStartYsByNameWords(words) {
+  const nameWords = words.filter((w) => extractName(w.text));
+  if (nameWords.length < 4) return null;
+  return runKMeans1D(
+    nameWords.map((w) => w.cy),
+    4
+  );
+}
+
+function buildDefaultDayCenters(words) {
+  if (!words.length) return null;
+  const minX = Math.min(...words.map((w) => w.x0));
+  const maxX = Math.max(...words.map((w) => w.x1));
+  const width = maxX - minX;
+  if (width < 300) return null;
+
+  const dayAreaLeft = minX + width * 0.22;
+  const dayWidth = (maxX - dayAreaLeft) / 7;
+  if (dayWidth <= 0) return null;
+
+  return Array.from({ length: 7 }, (_v, i) => dayAreaLeft + dayWidth * (i + 0.5));
+}
+
 function buildDayBoundaries(centers) {
   if (!centers || centers.length !== 7) return null;
   const rows = [];
@@ -372,6 +448,42 @@ function buildSlotStartYs(words) {
   return ys;
 }
 
+function buildFullWeekTemplate(weekStartDate, recognizedSlots) {
+  const map = new Map();
+  for (const slot of recognizedSlots || []) {
+    const key = `${slot.weekday}|${slot.startTime}|${slot.endTime}`;
+    const old = map.get(key);
+    if (!old) {
+      map.set(key, slot);
+      continue;
+    }
+    const oldScore = Number(Boolean(old.name)) + Number(Boolean(old.phone));
+    const newScore = Number(Boolean(slot.name)) + Number(Boolean(slot.phone));
+    if (newScore > oldScore) {
+      map.set(key, slot);
+    }
+  }
+
+  const rows = [];
+  for (let weekday = 1; weekday <= 7; weekday += 1) {
+    for (const ts of TEMPLATE_TIME_SLOTS) {
+      const key = `${weekday}|${ts.startTime}|${ts.endTime}`;
+      const picked = map.get(key);
+      rows.push({
+        weekday,
+        weekdayLabel: getWeekdayLabel(weekday),
+        date: addDays(weekStartDate, weekday - 1),
+        startTime: ts.startTime,
+        endTime: ts.endTime,
+        name: picked?.name || "",
+        phone: picked?.phone || "",
+        department: picked?.department || ""
+      });
+    }
+  }
+  return rows;
+}
+
 function extractName(rawText) {
   const candidates = String(rawText || "").match(/[\u4e00-\u9fa5]{2,4}/g) || [];
   const filtered = candidates.filter((item) => {
@@ -422,15 +534,18 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
     .filter((w) => w.text);
 
   if (!validWords.length) {
-    return [];
+    return buildFullWeekTemplate(weekStartDate, []);
   }
 
-  const centers = buildDayCenters(validWords);
+  const centers =
+    buildDayCenters(validWords) ||
+    buildDayCentersByNameWords(validWords) ||
+    buildDefaultDayCenters(validWords);
   const boundaries = buildDayBoundaries(centers);
-  const slotYs = buildSlotStartYs(validWords);
+  const slotYs = buildSlotStartYs(validWords) || buildSlotStartYsByNameWords(validWords);
 
   if (!boundaries || !slotYs) {
-    return [];
+    return buildFullWeekTemplate(weekStartDate, []);
   }
 
   const slots = [];
@@ -480,7 +595,7 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
     const key = `${slot.weekday}|${slot.startTime}|${slot.endTime}|${slot.name}|${slot.phone}`;
     if (!dedup.has(key)) dedup.set(key, slot);
   }
-  return Array.from(dedup.values());
+  return buildFullWeekTemplate(weekStartDate, Array.from(dedup.values()));
 }
 
 function getCheckinWindow(slot, type) {
@@ -673,15 +788,28 @@ app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
   if (!imageBuffer || !imageBuffer.length) {
     return res.status(400).json({ message: "图片内容为空" });
   }
+  if (imageBuffer.length < 15 * 1024) {
+    const slots = buildFullWeekTemplate(weekStartDate, []);
+    return res.json({
+      message: "图片过小或清晰度不足，已生成完整周模板，请按截图手工补充后导入",
+      title,
+      weekStartDate,
+      weekEndDate: addDays(weekStartDate, 6),
+      slots,
+      rawTextPreview: ""
+    });
+  }
 
   try {
     const result = await Tesseract.recognize(imageBuffer, "chi_sim+eng");
     const words = Array.isArray(result?.data?.words) ? result.data.words : [];
     const slots = parseSlotsFromScreenshot(words, weekStartDate);
+    const filledCount = slots.filter((s) => s.name || s.phone).length;
     return res.json({
-      message: slots.length
-        ? `识别完成，已提取 ${slots.length} 条值班记录（可在导入前编辑）`
-        : "识别完成，但未提取到有效记录，请手动补充",
+      message:
+        filledCount > 0
+          ? `识别完成，自动填充 ${filledCount} 个班次，其余已生成空模板可手工补充`
+          : "识别结果较弱，已生成完整周模板，请按截图手工补充后导入",
       title,
       weekStartDate,
       weekEndDate: addDays(weekStartDate, 6),
@@ -889,7 +1017,7 @@ app.post("/api/checkins/overtime", authMiddleware, (req, res) => {
   return res.json({ message: "加班信息已保存", checkin: record });
 });
 
-app.get("/api/public/overview", authMiddleware, (_req, res) => {
+app.get("/api/public/overview", (_req, res) => {
   const db = readDb();
   const rows = buildPublicRows(db);
   return res.json({
@@ -898,7 +1026,7 @@ app.get("/api/public/overview", authMiddleware, (_req, res) => {
   });
 });
 
-app.get("/api/public/export.csv", authMiddleware, (_req, res) => {
+app.get("/api/public/export.csv", (_req, res) => {
   const db = readDb();
   const rows = buildPublicRows(db);
   let csv = "\uFEFF";
