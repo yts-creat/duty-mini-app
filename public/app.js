@@ -1,38 +1,66 @@
 const state = {
   token: localStorage.getItem("token") || "",
   user: null,
-  mode: "register",
-  schedules: [],
-  checkins: []
+  authMode: "register",
+  activeTab: "mine",
+  currentSchedule: null,
+  mySlots: [],
+  publicRows: [],
+  importDraft: []
 };
 
-const el = {
+const weekdayMap = {
+  1: "星期一",
+  2: "星期二",
+  3: "星期三",
+  4: "星期四",
+  5: "星期五",
+  6: "星期六",
+  7: "星期日"
+};
+
+const els = {
   toast: document.getElementById("toast"),
   authView: document.getElementById("authView"),
   appView: document.getElementById("appView"),
-  tabRegister: document.getElementById("tabRegister"),
-  tabLogin: document.getElementById("tabLogin"),
+  switchRegister: document.getElementById("switchRegister"),
+  switchLogin: document.getElementById("switchLogin"),
   registerForm: document.getElementById("registerForm"),
   loginForm: document.getElementById("loginForm"),
-  sendCodeBtn: document.getElementById("sendCodeBtn"),
-  profileName: document.getElementById("profileName"),
-  profilePhone: document.getElementById("profilePhone"),
   logoutBtn: document.getElementById("logoutBtn"),
-  scheduleForm: document.getElementById("scheduleForm"),
-  scheduleList: document.getElementById("scheduleList"),
-  checkinList: document.getElementById("checkinList"),
-  refreshBtn: document.getElementById("refreshBtn"),
-  scheduleDate: document.getElementById("scheduleDate")
+  userName: document.getElementById("userName"),
+  userPhone: document.getElementById("userPhone"),
+  userDepartment: document.getElementById("userDepartment"),
+  tabMine: document.getElementById("tabMine"),
+  tabPublic: document.getElementById("tabPublic"),
+  tabImport: document.getElementById("tabImport"),
+  panelMine: document.getElementById("panelMine"),
+  panelPublic: document.getElementById("panelPublic"),
+  panelImport: document.getElementById("panelImport"),
+  currentScheduleInfo: document.getElementById("currentScheduleInfo"),
+  mySlots: document.getElementById("mySlots"),
+  publicTableBody: document.getElementById("publicTableBody"),
+  refreshPublicBtn: document.getElementById("refreshPublicBtn"),
+  exportPublicBtn: document.getElementById("exportPublicBtn"),
+  importTitle: document.getElementById("importTitle"),
+  importWeekStart: document.getElementById("importWeekStart"),
+  importImageFile: document.getElementById("importImageFile"),
+  recognizeBtn: document.getElementById("recognizeBtn"),
+  recognizeResult: document.getElementById("recognizeResult"),
+  importEditorCard: document.getElementById("importEditorCard"),
+  importRowsBody: document.getElementById("importRowsBody"),
+  addImportRowBtn: document.getElementById("addImportRowBtn"),
+  confirmImportBtn: document.getElementById("confirmImportBtn")
 };
 
-function showToast(message, isError = false) {
-  el.toast.textContent = message;
-  el.toast.classList.remove("hidden");
-  el.toast.classList.toggle("error", isError);
-  window.clearTimeout(showToast.timer);
-  showToast.timer = window.setTimeout(() => {
-    el.toast.classList.add("hidden");
-  }, 2600);
+function toast(message, isError = false) {
+  els.toast.textContent = message;
+  els.toast.classList.remove("hidden");
+  els.toast.classList.toggle("error", isError);
+  window.clearTimeout(toast.timer);
+  toast.timer = window.setTimeout(() => {
+    els.toast.classList.add("hidden");
+  }, 2800);
 }
 
 function escapeHtml(value) {
@@ -44,18 +72,34 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
-function setMode(mode) {
-  state.mode = mode;
+function formatDateTime(value) {
+  if (!value) return "-";
+  const date = new Date(value);
+  return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function setAuthMode(mode) {
+  state.authMode = mode;
   const isRegister = mode === "register";
-  el.tabRegister.classList.toggle("active", isRegister);
-  el.tabLogin.classList.toggle("active", !isRegister);
-  el.registerForm.classList.toggle("hidden", !isRegister);
-  el.loginForm.classList.toggle("hidden", isRegister);
+  els.switchRegister.classList.toggle("active", isRegister);
+  els.switchLogin.classList.toggle("active", !isRegister);
+  els.registerForm.classList.toggle("hidden", !isRegister);
+  els.loginForm.classList.toggle("hidden", isRegister);
+}
+
+function setTab(tab) {
+  state.activeTab = tab;
+  els.tabMine.classList.toggle("active", tab === "mine");
+  els.tabPublic.classList.toggle("active", tab === "public");
+  els.tabImport.classList.toggle("active", tab === "import");
+  els.panelMine.classList.toggle("hidden", tab !== "mine");
+  els.panelPublic.classList.toggle("hidden", tab !== "public");
+  els.panelImport.classList.toggle("hidden", tab !== "import");
 }
 
 function setAuthed(authed) {
-  el.authView.classList.toggle("hidden", authed);
-  el.appView.classList.toggle("hidden", !authed);
+  els.authView.classList.toggle("hidden", authed);
+  els.appView.classList.toggle("hidden", !authed);
 }
 
 function saveSession(token, user) {
@@ -63,19 +107,18 @@ function saveSession(token, user) {
   state.user = user;
   localStorage.setItem("token", token);
   localStorage.setItem("user", JSON.stringify(user));
-  renderProfile();
   setAuthed(true);
+  renderUser();
 }
 
 function clearSession() {
   state.token = "";
   state.user = null;
-  state.schedules = [];
-  state.checkins = [];
+  state.currentSchedule = null;
+  state.mySlots = [];
+  state.publicRows = [];
   localStorage.removeItem("token");
   localStorage.removeItem("user");
-  renderSchedules();
-  renderCheckins();
   setAuthed(false);
 }
 
@@ -87,7 +130,6 @@ async function api(path, options = {}) {
   if (state.token) {
     headers.Authorization = `Bearer ${state.token}`;
   }
-
   const resp = await fetch(path, {
     method: options.method || "GET",
     headers,
@@ -96,298 +138,428 @@ async function api(path, options = {}) {
 
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    if (resp.status === 401) {
-      clearSession();
-    }
+    if (resp.status === 401) clearSession();
     throw new Error(data.message || "请求失败");
   }
   return data;
 }
 
-function formatDateTime(iso) {
-  if (!iso) return "未签到";
-  const d = new Date(iso);
-  return d.toLocaleString("zh-CN", { hour12: false });
-}
-
-function buildWindows(schedule) {
-  const start = new Date(`${schedule.date}T${schedule.startTime}:00`);
-  const end = new Date(`${schedule.date}T${schedule.endTime}:00`);
-  const inStart = new Date(start.getTime() - 20 * 60 * 1000);
-  const inEnd = new Date(start.getTime() + 20 * 60 * 1000);
-  const outStart = new Date(end.getTime() - 20 * 60 * 1000);
-  const outEnd = new Date(end.getTime() + 20 * 60 * 1000);
-  return {
-    inText: `${inStart.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} - ${inEnd.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`,
-    outText: `${outStart.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })} - ${outEnd.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" })}`
-  };
-}
-
-function renderProfile() {
+function renderUser() {
   if (!state.user) return;
-  el.profileName.textContent = state.user.name;
-  el.profilePhone.textContent = state.user.phone;
+  els.userName.textContent = state.user.name;
+  els.userPhone.textContent = state.user.phone;
+  els.userDepartment.textContent = state.user.department || "-";
 }
 
-function renderSchedules() {
-  if (!state.schedules.length) {
-    el.scheduleList.innerHTML = '<p class="muted">今天还没有值班安排，先新增一条吧。</p>';
+function renderScheduleTitle() {
+  if (!state.currentSchedule) {
+    els.currentScheduleInfo.textContent = "暂无值班表，请先在“导入值班表”里上传并识别。";
+    return;
+  }
+  const s = state.currentSchedule;
+  els.currentScheduleInfo.textContent = `${s.title}（${s.weekStartDate} ~ ${s.weekEndDate}）`;
+}
+
+function slotStatus(slot) {
+  if (!slot.checkin?.checkInAt) return { label: "未签到", cls: "wait" };
+  if (slot.checkin?.checkInAt && !slot.checkin?.checkOutAt) return { label: "已进站", cls: "partial" };
+  return { label: "已完成", cls: "done" };
+}
+
+function renderMySlots() {
+  if (!state.mySlots.length) {
+    els.mySlots.innerHTML = '<div class="card"><p class="sub">本周没有匹配到你的值班时间，请确认手机号是否和导入值班表一致。</p></div>';
     return;
   }
 
-  el.scheduleList.innerHTML = state.schedules
-    .map((schedule) => {
-      const checkin = schedule.checkin;
-      const windows = buildWindows(schedule);
-      const inDone = Boolean(checkin && checkin.checkInAt);
-      const outDone = Boolean(checkin && checkin.checkOutAt);
+  els.mySlots.innerHTML = state.mySlots
+    .map((slot) => {
+      const status = slotStatus(slot);
+      const checkin = slot.checkin || {};
       return `
-        <article class="item">
-          <h3>${escapeHtml(schedule.title)}</h3>
-          <p>日期：${escapeHtml(schedule.date)} | 班次：${escapeHtml(schedule.startTime)} - ${escapeHtml(schedule.endTime)}</p>
-          <p>进站窗口：${escapeHtml(windows.inText)}（前后20分钟）</p>
-          <p>出站窗口：${escapeHtml(windows.outText)}（前后20分钟）</p>
-          <p>
-            <span class="status ${outDone ? "done" : "waiting"}">
-              ${outDone ? "已完成出站" : inDone ? "待出站" : "待进站"}
-            </span>
-          </p>
-          <div class="item-actions">
-            <button class="primary" data-action="checkin-in" data-id="${schedule.id}" ${inDone ? "disabled" : ""}>进站签到</button>
-            <button class="primary" data-action="checkin-out" data-id="${schedule.id}" ${!inDone || outDone ? "disabled" : ""}>出站签到</button>
-            <button class="secondary" data-action="delete-schedule" data-id="${schedule.id}">删除</button>
+        <article class="slot-card">
+          <h3>${escapeHtml(slot.date)} ${escapeHtml(slot.startTime)}-${escapeHtml(slot.endTime)}</h3>
+          <p class="slot-meta">${escapeHtml(slot.weekdayLabel || weekdayMap[slot.weekday] || "")} · ${escapeHtml(slot.name || state.user.name)}</p>
+          <p class="slot-meta">签到窗口：进站 ${escapeHtml(slot.inWindowText)} ｜ 出站 ${escapeHtml(slot.outWindowText)}</p>
+          <p class="slot-meta"><span class="status-tag ${status.cls}">${status.label}</span></p>
+          <p class="slot-meta">进站时间：${escapeHtml(formatDateTime(checkin.checkInAt))}</p>
+          <p class="slot-meta">出站时间：${escapeHtml(formatDateTime(checkin.checkOutAt))}</p>
+
+          <label>进站备注
+            <input id="inRemark_${slot.id}" placeholder="如：值班巡检、处理咨询等" />
+          </label>
+          <label>出站备注
+            <input id="outRemark_${slot.id}" placeholder="如：完成日报、汇总反馈等" />
+          </label>
+          <div class="slot-actions">
+            <button class="primary" data-action="checkin-in" data-id="${slot.id}" ${checkin.checkInAt ? "disabled" : ""}>进站签到</button>
+            <button class="primary" data-action="checkin-out" data-id="${slot.id}" ${!checkin.checkInAt || checkin.checkOutAt ? "disabled" : ""}>出站签到</button>
           </div>
+
+          <label>加班开始时间
+            <input id="otStart_${slot.id}" type="time" value="${escapeHtml(checkin.overtimeStart || "")}" />
+          </label>
+          <label>加班时长（分钟）
+            <input id="otMinutes_${slot.id}" type="number" min="1" max="720" value="${checkin.overtimeMinutes || ""}" />
+          </label>
+          <label>加班备注
+            <input id="otRemark_${slot.id}" value="${escapeHtml(checkin.overtimeRemark || "")}" placeholder="如：处理突发问题、活动支持" />
+          </label>
+          <button class="secondary" data-action="save-overtime" data-id="${slot.id}">保存加班信息</button>
         </article>
       `;
     })
     .join("");
 }
 
-function renderCheckins() {
-  if (!state.checkins.length) {
-    el.checkinList.innerHTML = '<p class="muted">今天还没有签到记录。</p>';
+function renderPublicTable() {
+  if (!state.publicRows.length) {
+    els.publicTableBody.innerHTML = '<tr><td colspan="9">暂无公共数据</td></tr>';
     return;
   }
 
-  el.checkinList.innerHTML = state.checkins
-    .map((item) => {
-      const title = item.schedule?.title || "值班安排";
+  els.publicTableBody.innerHTML = state.publicRows
+    .map((row) => {
+      const overtimeText =
+        row.overtimeMinutes > 0
+          ? `${escapeHtml(row.overtimeStart || "-")} / ${row.overtimeMinutes} 分钟`
+          : "-";
       return `
-        <article class="item">
-          <h3>${escapeHtml(title)}（${escapeHtml(item.date)}）</h3>
-          <p>进站时间：${escapeHtml(formatDateTime(item.checkInAt))}</p>
-          <p>出站时间：${escapeHtml(formatDateTime(item.checkOutAt))}</p>
-        </article>
+        <tr>
+          <td>${escapeHtml(row.date)} ${escapeHtml(row.weekday)}</td>
+          <td>${escapeHtml(row.startTime)}-${escapeHtml(row.endTime)}</td>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${escapeHtml(row.phone)}</td>
+          <td>${escapeHtml(row.department)}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${escapeHtml(formatDateTime(row.checkInAt))}</td>
+          <td>${escapeHtml(formatDateTime(row.checkOutAt))}</td>
+          <td>${overtimeText}</td>
+        </tr>
       `;
     })
     .join("");
 }
 
-async function loadTodayData() {
-  const date = el.scheduleDate.value;
-  const [scheduleData, checkinData] = await Promise.all([
-    api(`/api/schedules?date=${encodeURIComponent(date)}`),
-    api(`/api/checkins?date=${encodeURIComponent(date)}`)
-  ]);
-  state.schedules = scheduleData.schedules;
-  state.checkins = checkinData.checkins;
-  renderSchedules();
-  renderCheckins();
-}
-
-async function handleRegister(event) {
-  event.preventDefault();
-  const phone = document.getElementById("registerPhone").value.trim();
-  const code = document.getElementById("registerCode").value.trim();
-  const password = document.getElementById("registerPassword").value;
-  const confirmPassword = document.getElementById("registerConfirmPassword").value;
-  const name = document.getElementById("registerName").value.trim();
-
-  try {
-    const data = await api("/api/auth/register", {
-      method: "POST",
-      body: { phone, code, password, confirmPassword, name }
-    });
-    saveSession(data.token, data.user);
-    await loadTodayData();
-    showToast("注册成功，已自动登录");
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function handleLogin(event) {
-  event.preventDefault();
-  const phone = document.getElementById("loginPhone").value.trim();
-  const password = document.getElementById("loginPassword").value;
-
-  try {
-    const data = await api("/api/auth/login", {
-      method: "POST",
-      body: { phone, password }
-    });
-    saveSession(data.token, data.user);
-    await loadTodayData();
-    showToast("登录成功");
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function handleSendCode() {
-  const phone = document.getElementById("registerPhone").value.trim();
-  if (!/^1\d{10}$/.test(phone)) {
-    showToast("请输入正确的11位手机号", true);
+function renderImportRows() {
+  if (!state.importDraft.length) {
+    els.importRowsBody.innerHTML = '<tr><td colspan="7">暂无识别结果，请先上传截图识别。</td></tr>';
     return;
   }
 
-  try {
-    const data = await api("/api/auth/send-code", {
-      method: "POST",
-      body: { phone, purpose: "register" }
-    });
-    if (data.code) {
-      showToast(`验证码已发送（演示环境）：${data.code}`);
-    } else {
-      showToast("验证码已发送到手机，请注意查收");
-    }
-    startCodeCountdown();
-  } catch (error) {
-    showToast(error.message, true);
-  }
+  els.importRowsBody.innerHTML = state.importDraft
+    .map(
+      (row, idx) => `
+      <tr>
+        <td>
+          <select data-field="weekday" data-idx="${idx}">
+            ${[1, 2, 3, 4, 5, 6, 7]
+              .map((n) => `<option value="${n}" ${Number(row.weekday) === n ? "selected" : ""}>${weekdayMap[n]}</option>`)
+              .join("")}
+          </select>
+        </td>
+        <td><input data-field="date" data-idx="${idx}" value="${escapeHtml(row.date || "")}" /></td>
+        <td><input data-field="startTime" data-idx="${idx}" value="${escapeHtml(row.startTime || "")}" /></td>
+        <td><input data-field="endTime" data-idx="${idx}" value="${escapeHtml(row.endTime || "")}" /></td>
+        <td><input data-field="name" data-idx="${idx}" value="${escapeHtml(row.name || "")}" /></td>
+        <td><input data-field="phone" data-idx="${idx}" value="${escapeHtml(row.phone || "")}" /></td>
+        <td><input data-field="department" data-idx="${idx}" value="${escapeHtml(row.department || "")}" placeholder="可选" /></td>
+      </tr>
+    `
+    )
+    .join("");
 }
 
-function startCodeCountdown() {
-  let remain = 60;
-  el.sendCodeBtn.disabled = true;
-  el.sendCodeBtn.textContent = `${remain}s`;
-  const timer = setInterval(() => {
-    remain -= 1;
-    if (remain <= 0) {
-      clearInterval(timer);
-      el.sendCodeBtn.disabled = false;
-      el.sendCodeBtn.textContent = "获取验证码";
-      return;
-    }
-    el.sendCodeBtn.textContent = `${remain}s`;
-  }, 1000);
+async function refreshAll() {
+  const [scheduleRes, myRes, publicRes] = await Promise.all([
+    api("/api/schedule/current"),
+    api("/api/my/slots"),
+    api("/api/public/overview")
+  ]);
+  state.currentSchedule = scheduleRes.currentSchedule;
+  state.mySlots = myRes.slots || [];
+  state.publicRows = publicRes.rows || [];
+  renderScheduleTitle();
+  renderMySlots();
+  renderPublicTable();
 }
 
-async function handleCreateSchedule(event) {
-  event.preventDefault();
-  const date = document.getElementById("scheduleDate").value;
-  const startTime = document.getElementById("scheduleStartTime").value;
-  const endTime = document.getElementById("scheduleEndTime").value;
-  const title = document.getElementById("scheduleTitle").value.trim();
-
-  try {
-    await api("/api/schedules", {
-      method: "POST",
-      body: { date, startTime, endTime, title }
-    });
-    await loadTodayData();
-    showToast("值班安排已创建");
-    event.target.reset();
-    initScheduleDefaults();
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function handleCheckin(scheduleId, type) {
-  try {
-    const message = type === "in" ? "进站备注（可选）" : "出站备注（可选）";
-    const remark = window.prompt(message, "") || "";
-    await api("/api/checkins", {
-      method: "POST",
-      body: { scheduleId, type, remark }
-    });
-    await loadTodayData();
-    showToast(type === "in" ? "进站签到成功" : "出站签到成功");
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-async function handleDeleteSchedule(scheduleId) {
-  const ok = window.confirm("确认删除该值班安排吗？");
-  if (!ok) return;
-
-  try {
-    await api(`/api/schedules/${scheduleId}`, { method: "DELETE" });
-    await loadTodayData();
-    showToast("值班安排已删除");
-  } catch (error) {
-    showToast(error.message, true);
-  }
-}
-
-function initScheduleDefaults() {
-  const now = new Date();
-  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  el.scheduleDate.value = date;
-}
-
-async function tryRestoreSession() {
+async function tryRestore() {
   const savedUser = localStorage.getItem("user");
   if (!state.token || !savedUser) {
     clearSession();
     return;
   }
-
   try {
-    const data = await api("/api/me");
-    state.user = data.user;
-    localStorage.setItem("user", JSON.stringify(data.user));
-    renderProfile();
+    const me = await api("/api/me");
+    state.user = me.user;
+    localStorage.setItem("user", JSON.stringify(me.user));
+    renderUser();
     setAuthed(true);
-    await loadTodayData();
+    await refreshAll();
   } catch (_error) {
     clearSession();
   }
 }
 
-function bindEvents() {
-  el.tabRegister.addEventListener("click", () => setMode("register"));
-  el.tabLogin.addEventListener("click", () => setMode("login"));
-  el.registerForm.addEventListener("submit", handleRegister);
-  el.loginForm.addEventListener("submit", handleLogin);
-  el.sendCodeBtn.addEventListener("click", handleSendCode);
-  el.scheduleForm.addEventListener("submit", handleCreateSchedule);
-  el.refreshBtn.addEventListener("click", async () => {
-    try {
-      await loadTodayData();
-      showToast("数据已刷新");
-    } catch (error) {
-      showToast(error.message, true);
-    }
+async function handleRegister(event) {
+  event.preventDefault();
+  const body = {
+    name: document.getElementById("regName").value.trim(),
+    phone: document.getElementById("regPhone").value.trim(),
+    department: document.getElementById("regDepartment").value,
+    password: document.getElementById("regPassword").value,
+    confirmPassword: document.getElementById("regConfirmPassword").value
+  };
+  try {
+    const data = await api("/api/auth/register", { method: "POST", body });
+    saveSession(data.token, data.user);
+    await refreshAll();
+    toast("注册成功，已自动登录");
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function handleLogin(event) {
+  event.preventDefault();
+  const body = {
+    phone: document.getElementById("loginPhone").value.trim(),
+    password: document.getElementById("loginPassword").value
+  };
+  try {
+    const data = await api("/api/auth/login", { method: "POST", body });
+    saveSession(data.token, data.user);
+    await refreshAll();
+    toast("登录成功");
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function readDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.readAsDataURL(file);
   });
-  el.logoutBtn.addEventListener("click", () => {
+}
+
+function collectImportRowsFromDom() {
+  const rows = [];
+  const trList = Array.from(els.importRowsBody.querySelectorAll("tr"));
+  for (const tr of trList) {
+    const weekday = Number(tr.querySelector('[data-field="weekday"]')?.value || 0);
+    const date = tr.querySelector('[data-field="date"]')?.value.trim() || "";
+    const startTime = tr.querySelector('[data-field="startTime"]')?.value.trim() || "";
+    const endTime = tr.querySelector('[data-field="endTime"]')?.value.trim() || "";
+    const name = tr.querySelector('[data-field="name"]')?.value.trim() || "";
+    const phone = tr.querySelector('[data-field="phone"]')?.value.trim() || "";
+    const department = tr.querySelector('[data-field="department"]')?.value.trim() || "";
+    rows.push({ weekday, date, startTime, endTime, name, phone, department });
+  }
+  return rows;
+}
+
+async function handleRecognize() {
+  const file = els.importImageFile.files?.[0];
+  const weekStartDate = els.importWeekStart.value;
+  const title = els.importTitle.value.trim() || "值班表导入";
+  if (!file) {
+    toast("请先选择值班表截图", true);
+    return;
+  }
+  if (!weekStartDate) {
+    toast("请先选择本周周一日期", true);
+    return;
+  }
+
+  try {
+    els.recognizeBtn.disabled = true;
+    els.recognizeResult.textContent = "识别中，请稍候（图片越清晰越快）...";
+    const imageDataUrl = await readDataUrl(file);
+    const data = await api("/api/schedule/recognize", {
+      method: "POST",
+      body: { title, weekStartDate, imageDataUrl }
+    });
+    state.importDraft = data.slots || [];
+    renderImportRows();
+    els.importEditorCard.classList.remove("hidden");
+    els.recognizeResult.textContent = data.message || "";
+    toast("识别完成，请先核对再导入");
+  } catch (error) {
+    els.recognizeResult.textContent = "";
+    toast(error.message, true);
+  } finally {
+    els.recognizeBtn.disabled = false;
+  }
+}
+
+async function handleConfirmImport() {
+  const weekStartDate = els.importWeekStart.value;
+  const title = els.importTitle.value.trim() || "值班表导入";
+  if (!weekStartDate) {
+    toast("请先选择本周周一日期", true);
+    return;
+  }
+
+  const rows = collectImportRowsFromDom();
+  const ok = window.confirm("确认导入该值班表吗？这会清空历史签到和加班记录。");
+  if (!ok) return;
+
+  try {
+    const data = await api("/api/schedule/import", {
+      method: "POST",
+      body: { title, weekStartDate, slots: rows }
+    });
+    toast(data.message || "导入成功");
+    await refreshAll();
+    setTab("public");
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function addImportRow() {
+  state.importDraft.push({
+    weekday: 1,
+    date: "",
+    startTime: "08:00",
+    endTime: "09:40",
+    name: "",
+    phone: "",
+    department: ""
+  });
+  renderImportRows();
+}
+
+async function doCheckIn(slotId, type) {
+  try {
+    const inRemark = document.getElementById(`inRemark_${slotId}`)?.value.trim() || "";
+    const outRemark = document.getElementById(`outRemark_${slotId}`)?.value.trim() || "";
+    if (type === "in") {
+      await api("/api/checkins/in", {
+        method: "POST",
+        body: { slotId, remark: inRemark }
+      });
+      toast("进站签到成功");
+    } else {
+      await api("/api/checkins/out", {
+        method: "POST",
+        body: { slotId, remark: outRemark }
+      });
+      toast("出站签到成功");
+    }
+    await refreshAll();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function saveOvertime(slotId) {
+  const overtimeStart = document.getElementById(`otStart_${slotId}`)?.value || "";
+  const overtimeMinutes = Number(document.getElementById(`otMinutes_${slotId}`)?.value || 0);
+  const overtimeRemark = document.getElementById(`otRemark_${slotId}`)?.value.trim() || "";
+  try {
+    await api("/api/checkins/overtime", {
+      method: "POST",
+      body: { slotId, overtimeStart, overtimeMinutes, overtimeRemark }
+    });
+    toast("加班信息已保存");
+    await refreshAll();
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+async function exportPublicCsv() {
+  try {
+    const resp = await fetch("/api/public/export.csv", {
+      headers: {
+        Authorization: `Bearer ${state.token}`
+      }
+    });
+    if (!resp.ok) {
+      const data = await resp.json().catch(() => ({}));
+      throw new Error(data.message || "导出失败");
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "公共签到统计.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    toast("导出成功");
+  } catch (error) {
+    toast(error.message, true);
+  }
+}
+
+function bindEvents() {
+  els.switchRegister.addEventListener("click", () => setAuthMode("register"));
+  els.switchLogin.addEventListener("click", () => setAuthMode("login"));
+  els.registerForm.addEventListener("submit", handleRegister);
+  els.loginForm.addEventListener("submit", handleLogin);
+  els.logoutBtn.addEventListener("click", () => {
     clearSession();
-    showToast("已退出登录");
+    toast("已退出登录");
   });
 
-  el.scheduleList.addEventListener("click", (event) => {
+  els.tabMine.addEventListener("click", () => setTab("mine"));
+  els.tabPublic.addEventListener("click", () => setTab("public"));
+  els.tabImport.addEventListener("click", () => setTab("import"));
+
+  els.recognizeBtn.addEventListener("click", handleRecognize);
+  els.confirmImportBtn.addEventListener("click", handleConfirmImport);
+  els.addImportRowBtn.addEventListener("click", addImportRow);
+
+  els.refreshPublicBtn.addEventListener("click", async () => {
+    try {
+      await refreshAll();
+      toast("数据已刷新");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+  els.exportPublicBtn.addEventListener("click", exportPublicCsv);
+
+  els.mySlots.addEventListener("click", (event) => {
     const target = event.target;
     if (!(target instanceof HTMLButtonElement)) return;
     const action = target.dataset.action;
-    const id = target.dataset.id;
-    if (!action || !id) return;
+    const slotId = target.dataset.id;
+    if (!action || !slotId) return;
     if (action === "checkin-in") {
-      handleCheckin(id, "in");
+      doCheckIn(slotId, "in");
     } else if (action === "checkin-out") {
-      handleCheckin(id, "out");
-    } else if (action === "delete-schedule") {
-      handleDeleteSchedule(id);
+      doCheckIn(slotId, "out");
+    } else if (action === "save-overtime") {
+      saveOvertime(slotId);
     }
   });
 }
 
+function setDefaultImportDate() {
+  const now = new Date();
+  const day = now.getDay(); // 0 Sun, 1 Mon ...
+  const diffToMonday = day === 0 ? -6 : 1 - day;
+  const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
+  const y = monday.getFullYear();
+  const m = String(monday.getMonth() + 1).padStart(2, "0");
+  const d = String(monday.getDate()).padStart(2, "0");
+  els.importWeekStart.value = `${y}-${m}-${d}`;
+}
+
 function bootstrap() {
   bindEvents();
-  setMode("register");
-  initScheduleDefaults();
-  tryRestoreSession();
+  setAuthMode("register");
+  setTab("mine");
+  setDefaultImportDate();
+  tryRestore();
 }
 
 bootstrap();

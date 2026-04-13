@@ -1,63 +1,45 @@
-# 值班签到小程序版（本地可运行）
+# 创业网值班签到系统（周值班表识别版）
 
 ## 功能
-- 手机号 + 验证码 + 密码注册
-- 手机号 + 密码登录
-- 填写值班表（日期、开始时间、结束时间、说明）
-- 签到必须匹配自己的值班安排
-- 进站/出站均按班次前后 20 分钟校验
+- 手机号 + 密码注册登录（注册需填写部门）
+- 顶部展示创业网 Logo
+- 上传固定格式值班表截图并识别值班信息（可编辑后导入）
+- 每个成员只看到自己本周匹配的值班时段并签到
+- 进站/出站按班次前后 20 分钟校验
+- 每条签到可填写工作备注
+- 支持记录加班开始时间、加班时长、加班备注
+- 公共看板查看所有人员签到状态与加班信息
+- 公共看板支持导出 CSV 统计
+- 每次导入新值班表会自动清空历史签到/加班数据
 
 ## 技术栈
-- 后端：Node.js + Express + JWT + bcryptjs
-- 前端：原生 HTML/CSS/JS（移动端风格）
-- 数据：本地 JSON 文件（`data/db.json`）
+- 后端：Node.js + Express + JWT + bcryptjs + tesseract.js
+- 前端：原生 HTML/CSS/JS（响应式）
+- 数据：本地 JSON（`data/db.json`）
 
-## 启动方式
+## 本地运行
 ```bash
 npm install
 npm start
 ```
 
-浏览器打开：`http://localhost:3000`
+打开：`http://localhost:3000`
 
-## 生产环境变量
+## 环境变量
 - `NODE_ENV=production`
 - `PORT=3000`
 - `JWT_SECRET=请替换为高强度随机字符串`
-- `DB_PATH=/tmp/db.json`
-- `SMS_PROVIDER=mock`（演示）或 `tencent`（真实短信）
+- `DB_PATH=/tmp/db.json`（Render 推荐）
 
-可参考 `.env.example`。
+参考文件：`.env.example`
 
-## 上线（Render，推荐）
-1. 把项目推到 GitHub（仓库根目录包含 `Dockerfile` 和 `render.yaml`）。
-2. 在 Render 新建 Web Service，选择你的 GitHub 仓库（官方文档：<https://render.com/docs/web-services>）。
-3. Runtime 选 Docker，Render 会基于 `Dockerfile` 构建（官方文档：<https://render.com/docs/docker>）。
-4. 环境变量里设置 `JWT_SECRET`（必须），`NODE_ENV=production`。
-5. 部署完成后得到公网 URL，即可访问。
-
-## 上线（Railway，备选）
-1. 把项目推到 GitHub。
-2. 在 Railway 新建项目并连接仓库。
-3. 项目根目录有 `Dockerfile` 时会自动使用它构建（官方文档：<https://docs.railway.com/deploy/dockerfiles>）。
-4. 设置环境变量 `JWT_SECRET`、`NODE_ENV=production` 后发布。
+## Render 部署
+1. 代码推送到 GitHub。
+2. Render 新建 Web Service，连接仓库。
+3. Runtime 选 Docker（仓库已包含 `Dockerfile`、`render.yaml`）。
+4. 配置环境变量 `JWT_SECRET`、`NODE_ENV=production`。
+5. 完成部署后使用 `https://xxx.onrender.com` 访问。
 
 ## 说明
-- 当前验证码接口是演示模式：调用“获取验证码”后会直接在页面提示验证码，方便本地调试。
-- 生产环境需要替换为真实短信服务（如阿里云短信、腾讯云短信等）。
-- 当前默认使用 `data/db.json` 文件存储数据。若你部署到无持久化磁盘环境，重启后数据可能丢失，建议接入 MySQL/PostgreSQL。
-
-## 真实短信（腾讯云）接入
-1. 在腾讯云短信控制台申请并通过：
-- `SmsSdkAppId`
-- `签名`
-- `短信模板`（建议两个变量：`{1}=验证码`，`{2}=过期分钟数`）
-2. 在 Render 环境变量中设置：
-- `SMS_PROVIDER=tencent`
-- `SMS_TENCENT_SECRET_ID=...`
-- `SMS_TENCENT_SECRET_KEY=...`
-- `SMS_TENCENT_APP_ID=...`
-- `SMS_TENCENT_SIGN_NAME=...`
-- `SMS_TENCENT_TEMPLATE_ID=...`
-- `SMS_TENCENT_REGION=ap-guangzhou`
-3. 重新部署后，`/api/auth/send-code` 会真实下发短信到手机，不再在页面显示验证码。
+- 截图识别依赖 OCR，建议上传清晰、完整、正向截图，导入前请在页面里人工校对。
+- 当前数据存储为文件，若平台磁盘非持久化，服务重启后可能丢失数据；生产建议改为数据库。

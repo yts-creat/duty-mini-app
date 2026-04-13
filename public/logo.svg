@@ -1,0 +1,12 @@
+<svg width="120" height="80" viewBox="0 0 120 80" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="创业网logo">
+  <defs>
+    <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ff9d2f"/>
+      <stop offset="100%" stop-color="#d23a2e"/>
+    </linearGradient>
+  </defs>
+  <rect width="120" height="80" rx="8" fill="#fff"/>
+  <path d="M15 52c16 13 56 13 76-2 8-6 7-14-2-20-16-11-50-10-66 2-8 6-10 14-8 20z" fill="url(#g1)"/>
+  <path d="M24 46c13 9 42 9 56-2 6-4 5-9-1-13-12-8-36-8-49 1-7 5-8 10-6 14z" fill="#fff" opacity=".85"/>
+  <path d="M32 41c9 6 28 6 37-1 4-3 4-6 0-9-8-6-23-6-32 0-4 3-5 6-5 10z" fill="url(#g1)"/>
+</svg>

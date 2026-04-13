@@ -1,6 +1,6 @@
 {
   "users": [],
-  "smsCodes": [],
-  "schedules": [],
-  "checkins": []
+  "dutySlots": [],
+  "checkins": [],
+  "currentSchedule": null
 }

@@ -3,79 +3,142 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>值班签到小程序版</title>
+    <title>创业网值班签到系统</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <main class="app-shell">
-      <header class="top-bar">
-        <h1>值班签到</h1>
-        <p>手机号注册 + 值班匹配 + 前后20分钟签到</p>
+      <header class="hero">
+        <img class="hero-logo" src="./logo.svg" alt="创业网logo" />
+        <div>
+          <h1>创业网值班签到系统</h1>
+          <p>按本周值班表签到、备注工作内容、记录加班并公共统计导出</p>
+        </div>
       </header>
 
       <section id="toast" class="toast hidden"></section>
 
       <section id="authView">
-        <div class="tabs">
-          <button id="tabRegister" class="tab-btn active" type="button">注册</button>
-          <button id="tabLogin" class="tab-btn" type="button">登录</button>
+        <div class="switches">
+          <button class="switch active" id="switchRegister" type="button">注册</button>
+          <button class="switch" id="switchLogin" type="button">登录</button>
         </div>
 
         <form id="registerForm" class="card">
           <h2>新用户注册</h2>
-          <label>手机号<input id="registerPhone" placeholder="请输入11位手机号" /></label>
-          <div class="code-row">
-            <label class="grow"
-              >验证码<input id="registerCode" placeholder="请输入验证码"
-            /></label>
-            <button id="sendCodeBtn" class="secondary" type="button">获取验证码</button>
-          </div>
-          <label>密码<input id="registerPassword" type="password" placeholder="6-32位，含字母和数字" /></label>
-          <label>确认密码<input id="registerConfirmPassword" type="password" placeholder="再次输入密码" /></label>
-          <label>昵称（可选）<input id="registerName" placeholder="例如：张三" /></label>
-          <button class="primary" type="submit">注册并登录</button>
+          <label>姓名<input id="regName" placeholder="请输入姓名" required /></label>
+          <label>手机号<input id="regPhone" placeholder="请输入11位手机号" required /></label>
+          <label>
+            部门
+            <select id="regDepartment" required>
+              <option value="">请选择部门</option>
+              <option value="推广部">推广部</option>
+              <option value="运营部">运营部</option>
+              <option value="技术部">技术部</option>
+              <option value="综合部">综合部</option>
+            </select>
+          </label>
+          <label>密码<input id="regPassword" type="password" placeholder="6-32位，包含字母和数字" required /></label>
+          <label>确认密码<input id="regConfirmPassword" type="password" placeholder="再次输入密码" required /></label>
+          <button type="submit" class="primary">注册并登录</button>
         </form>
 
         <form id="loginForm" class="card hidden">
           <h2>账号登录</h2>
-          <label>手机号<input id="loginPhone" placeholder="请输入11位手机号" /></label>
-          <label>密码<input id="loginPassword" type="password" placeholder="请输入密码" /></label>
-          <button class="primary" type="submit">登录</button>
+          <label>手机号<input id="loginPhone" placeholder="请输入11位手机号" required /></label>
+          <label>密码<input id="loginPassword" type="password" placeholder="请输入密码" required /></label>
+          <button type="submit" class="primary">登录</button>
         </form>
       </section>
 
       <section id="appView" class="hidden">
-        <div class="card profile-card">
+        <div class="card user-card">
           <div>
-            <p class="muted">当前账号</p>
-            <h2 id="profileName">-</h2>
-            <p id="profilePhone" class="muted">-</p>
+            <p class="sub">当前账号</p>
+            <h2 id="userName">-</h2>
+            <p class="sub"><span id="userPhone">-</span> · <span id="userDepartment">-</span></p>
           </div>
-          <button id="logoutBtn" class="secondary" type="button">退出</button>
+          <button type="button" id="logoutBtn" class="secondary">退出登录</button>
         </div>
 
-        <form id="scheduleForm" class="card">
-          <h2>填写值班表</h2>
-          <label>日期<input id="scheduleDate" type="date" /></label>
-          <div class="time-grid">
-            <label>开始时间<input id="scheduleStartTime" type="time" /></label>
-            <label>结束时间<input id="scheduleEndTime" type="time" /></label>
-          </div>
-          <label>说明<input id="scheduleTitle" placeholder="例如：运营晚班" /></label>
-          <button class="primary" type="submit">新增值班安排</button>
-        </form>
+        <div class="switches">
+          <button class="switch active" id="tabMine" type="button">我的值班</button>
+          <button class="switch" id="tabPublic" type="button">公共看板</button>
+          <button class="switch" id="tabImport" type="button">导入值班表</button>
+        </div>
 
-        <section class="card">
-          <div class="list-header">
-            <h2>今日值班安排</h2>
-            <button id="refreshBtn" class="secondary" type="button">刷新</button>
+        <section id="panelMine" class="tab-panel">
+          <div class="card">
+            <h2>本周安排</h2>
+            <p id="currentScheduleInfo" class="sub">暂无值班表，请先导入。</p>
           </div>
-          <div id="scheduleList" class="list"></div>
+          <div id="mySlots" class="cards"></div>
         </section>
 
-        <section class="card">
-          <h2>签到记录</h2>
-          <div id="checkinList" class="list"></div>
+        <section id="panelPublic" class="tab-panel hidden">
+          <div class="card">
+            <div class="inline-head">
+              <h2>公共签到与加班看板</h2>
+              <div class="inline-actions">
+                <button id="refreshPublicBtn" type="button" class="secondary">刷新</button>
+                <button id="exportPublicBtn" type="button" class="primary">导出统计</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table id="publicTable">
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>班次</th>
+                    <th>姓名</th>
+                    <th>手机号</th>
+                    <th>部门</th>
+                    <th>状态</th>
+                    <th>进站</th>
+                    <th>出站</th>
+                    <th>加班</th>
+                  </tr>
+                </thead>
+                <tbody id="publicTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <section id="panelImport" class="tab-panel hidden">
+          <div class="card">
+            <h2>导入值班表截图</h2>
+            <p class="warn">每次确认导入都会清空公共界面的历史签到与加班数据。</p>
+            <label>标题<input id="importTitle" placeholder="例如：创业网第七周值班表" /></label>
+            <label>本周周一日期<input id="importWeekStart" type="date" /></label>
+            <label>值班表截图<input id="importImageFile" type="file" accept="image/*" /></label>
+            <button id="recognizeBtn" type="button" class="primary">识别截图</button>
+            <p id="recognizeResult" class="sub"></p>
+          </div>
+
+          <div id="importEditorCard" class="card hidden">
+            <h2>识别结果（可编辑后再导入）</h2>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>星期</th>
+                    <th>日期</th>
+                    <th>开始</th>
+                    <th>结束</th>
+                    <th>姓名</th>
+                    <th>手机号</th>
+                    <th>部门</th>
+                  </tr>
+                </thead>
+                <tbody id="importRowsBody"></tbody>
+              </table>
+            </div>
+            <div class="inline-actions">
+              <button id="addImportRowBtn" type="button" class="secondary">新增一行</button>
+              <button id="confirmImportBtn" type="button" class="primary">确认导入并清空历史</button>
+            </div>
+          </div>
         </section>
       </section>
     </main>
