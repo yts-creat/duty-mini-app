@@ -45,6 +45,7 @@ const NAME_STOPWORDS = new Set([
   "周日",
   ...WEEKDAY_LABELS
 ]);
+const EMPTY_DUTY_MARKERS = new Set(["空", "无", "无人", "休", "休息", "-", "—", "--", "暂无", "空班"]);
 
 if (IS_PROD && JWT_SECRET === "replace_this_in_production") {
   console.error("FATAL: JWT_SECRET is required in production.");
@@ -229,8 +230,8 @@ function normalizeOcrText(value) {
   return String(value || "")
     .trim()
     .replace(/\s+/g, "")
-    .replace(/：/g, ":")
-    .replace(/[—–－]/g, "-");
+    .replace(/[\uFF1A\uFE55]/g, ":")
+    .replace(/[\u2014\u2013\uFF0D]/g, "-");
 }
 
 function weekdayIndexFromText(text) {
@@ -247,7 +248,7 @@ function weekdayIndexFromText(text) {
 }
 
 function allTimeTokensFromText(text) {
-  const raw = String(text || "").replace(/：/g, ":");
+  const raw = normalizeOcrText(text).replace(/[.\u3002]/g, ":");
   const result = [];
   const re = /([01]?\d|2[0-3]):([0-5]\d)/g;
   let m = null;
@@ -351,13 +352,107 @@ function runKMeans1D(values, k, maxIter = 24) {
   return centers;
 }
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function isLikelyPhoneChunk(text) {
+  const raw = normalizeOcrText(text);
+  if (!raw) return false;
+  if (allTimeTokensFromText(raw).length) return false;
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 4 || digits.length > 11) return false;
+  if (/^(19|20)\d{2}$/.test(digits)) return false;
+  return true;
+}
+
+function expandCentersTo7(seedCenters, words) {
+  if (!seedCenters || !seedCenters.length || !words.length) return null;
+  let centers = seedCenters.slice().sort((a, b) => a - b);
+
+  const minX = Math.min(...words.map((w) => w.x0));
+  const maxX = Math.max(...words.map((w) => w.x1));
+  const baseWidth = Math.max(maxX - minX, 1);
+
+  while (centers.length < 7) {
+    const gaps = [];
+    for (let i = 1; i < centers.length; i += 1) {
+      const gap = centers[i] - centers[i - 1];
+      if (gap > 1) gaps.push(gap);
+    }
+    const typicalGap = median(gaps) || baseWidth / 8;
+
+    let inserted = false;
+    let widestGap = -1;
+    let widestIdx = -1;
+    for (let i = 1; i < centers.length; i += 1) {
+      const gap = centers[i] - centers[i - 1];
+      if (gap > widestGap) {
+        widestGap = gap;
+        widestIdx = i - 1;
+      }
+    }
+    if (widestIdx >= 0 && widestGap > typicalGap * 1.45) {
+      centers.splice(widestIdx + 1, 0, (centers[widestIdx] + centers[widestIdx + 1]) / 2);
+      inserted = true;
+    }
+
+    if (!inserted) {
+      const leftMargin = centers[0] - minX;
+      const rightMargin = maxX - centers[centers.length - 1];
+      if (leftMargin > rightMargin + typicalGap * 0.35) {
+        centers.unshift(centers[0] - typicalGap);
+      } else if (rightMargin > leftMargin + typicalGap * 0.35) {
+        centers.push(centers[centers.length - 1] + typicalGap);
+      } else {
+        const prepend = centers[0] - typicalGap;
+        const append = centers[centers.length - 1] + typicalGap;
+        const prependCost = Math.abs(prepend - minX);
+        const appendCost = Math.abs(maxX - append);
+        if (prependCost <= appendCost) {
+          centers.unshift(prepend);
+        } else {
+          centers.push(append);
+        }
+      }
+    }
+  }
+
+  if (centers.length > 7) {
+    const reduced = [];
+    for (let i = 0; i < 7; i += 1) {
+      const idx = Math.round((i * (centers.length - 1)) / 6);
+      reduced.push(centers[idx]);
+    }
+    centers = reduced;
+  }
+  return centers.slice(0, 7);
+}
+
 function buildDayCentersByNameWords(words) {
   const nameWords = words.filter((w) => extractName(w.text));
-  if (nameWords.length < 7) return null;
-  return runKMeans1D(
-    nameWords.map((w) => w.cx),
-    7
-  );
+  if (nameWords.length < 5) return null;
+  const values = nameWords.map((w) => w.cx);
+  for (const k of [7, 6, 5]) {
+    if (values.length < k) continue;
+    const centers = runKMeans1D(values, k);
+    const expanded = expandCentersTo7(centers, words);
+    if (expanded) return expanded;
+  }
+  return null;
+}
+
+function buildDayCentersByDutyWords(words) {
+  const dutyWords = words.filter((w) => extractName(w.text) || isLikelyPhoneChunk(w.text));
+  if (dutyWords.length < 10) return null;
+  const values = dutyWords.map((w) => w.cx);
+  for (const k of [7, 6, 5]) {
+    if (values.length < k) continue;
+    const centers = runKMeans1D(values, k);
+    const expanded = expandCentersTo7(centers, words);
+    if (expanded) return expanded;
+  }
+  return null;
 }
 
 function buildSlotStartYsByNameWords(words) {
@@ -369,6 +464,30 @@ function buildSlotStartYsByNameWords(words) {
   );
 }
 
+function buildSlotStartYsByPhoneWords(words) {
+  const phoneWords = words.filter((w) => isLikelyPhoneChunk(w.text));
+  if (phoneWords.length < 8) return null;
+  return runKMeans1D(
+    phoneWords.map((w) => w.cy),
+    4
+  );
+}
+
+function buildDefaultSlotStartYs(words) {
+  if (!words.length) return null;
+  const minY = Math.min(...words.map((w) => w.y0));
+  const maxY = Math.max(...words.map((w) => w.y1));
+  const height = maxY - minY;
+  if (height < 300) return null;
+
+  const tableTop = minY + height * 0.18;
+  const tableBottom = minY + height * 0.92;
+  const step = (tableBottom - tableTop) / 4;
+  if (step <= 0) return null;
+
+  return Array.from({ length: 4 }, (_v, idx) => tableTop + step * (idx + 0.5));
+}
+
 function buildDefaultDayCenters(words) {
   if (!words.length) return null;
   const minX = Math.min(...words.map((w) => w.x0));
@@ -376,7 +495,11 @@ function buildDefaultDayCenters(words) {
   const width = maxX - minX;
   if (width < 300) return null;
 
-  const dayAreaLeft = minX + width * 0.22;
+  const timeWords = words.filter((w) => allTimeTokensFromText(w.text).length > 0);
+  const estimatedLeftByTime = timeWords.length
+    ? Math.max(...timeWords.map((w) => w.x1)) + width * 0.02
+    : minX + width * 0.18;
+  const dayAreaLeft = clamp(estimatedLeftByTime, minX + width * 0.12, minX + width * 0.4);
   const dayWidth = (maxX - dayAreaLeft) / 7;
   if (dayWidth <= 0) return null;
 
@@ -489,6 +612,7 @@ function extractName(rawText) {
   const filtered = candidates.filter((item) => {
     const t = item.trim();
     if (t.length < 2) return false;
+    if (EMPTY_DUTY_MARKERS.has(t)) return false;
     if (NAME_STOPWORDS.has(t)) return false;
     if (/^星期[一二三四五六日天]$/.test(t)) return false;
     if (/^周[一二三四五六日天]$/.test(t)) return false;
@@ -500,16 +624,31 @@ function extractName(rawText) {
 }
 
 function extractPhone(rawText) {
-  const text = String(rawText || "");
+  const text = normalizeOcrText(rawText);
   const direct = text.match(/1\d{10}/);
   if (direct) return direct[0];
   const digits = text.replace(/\D/g, "");
   if (digits.length === 11 && /^1\d{10}$/.test(digits)) return digits;
-  if (digits.length > 11) {
-    const tryMatch = digits.match(/1\d{10}/);
+  if (digits.length >= 11) {
+    for (let i = 0; i <= digits.length - 11; i += 1) {
+      const piece = digits.slice(i, i + 11);
+      if (/^1[3-9]\d{9}$/.test(piece)) return piece;
+    }
+    const tryMatch = digits.match(/1[3-9]\d{9}/);
     if (tryMatch) return tryMatch[0];
   }
   return "";
+}
+
+function normalizeDutyName(value) {
+  const name = String(value || "").trim();
+  const compact = name.replace(/\s+/g, "");
+  if (!compact) return "";
+  if (compact.length <= 1) return "";
+  if (EMPTY_DUTY_MARKERS.has(compact)) return "";
+  if (/^(空班|无人值班|无值班|未排班|待定|none|null|n\/a)$/iu.test(compact)) return "";
+  if (/^[\-—_]+$/u.test(compact)) return "";
+  return compact;
 }
 
 function parseSlotsFromScreenshot(words, weekStartDate) {
@@ -540,9 +679,14 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
   const centers =
     buildDayCenters(validWords) ||
     buildDayCentersByNameWords(validWords) ||
+    buildDayCentersByDutyWords(validWords) ||
     buildDefaultDayCenters(validWords);
   const boundaries = buildDayBoundaries(centers);
-  const slotYs = buildSlotStartYs(validWords) || buildSlotStartYsByNameWords(validWords);
+  const slotYs =
+    buildSlotStartYs(validWords) ||
+    buildSlotStartYsByNameWords(validWords) ||
+    buildSlotStartYsByPhoneWords(validWords) ||
+    buildDefaultSlotStartYs(validWords);
 
   if (!boundaries || !slotYs) {
     return buildFullWeekTemplate(weekStartDate, []);
@@ -556,7 +700,7 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
     const top = i > 0 ? (prevY + startY) / 2 : startY - (nextY - startY) * 0.35;
     const bottom =
       i < TEMPLATE_TIME_SLOTS.length - 1 ? (startY + nextY) / 2 : startY + (startY - prevY) * 0.65;
-    const mid = top + (bottom - top) * 0.56;
+    const mid = (top + bottom) / 2;
 
     for (const day of boundaries) {
       const cellWords = validWords.filter(
@@ -564,6 +708,7 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
       );
       if (!cellWords.length) continue;
       const sorted = cellWords.sort((a, b) => (a.cy === b.cy ? a.cx - b.cx : a.cy - b.cy));
+      const fullCellText = sorted.map((w) => w.text).join("");
       const nameText = sorted
         .filter((w) => w.cy <= mid)
         .map((w) => w.text)
@@ -573,8 +718,8 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
         .map((w) => w.text)
         .join("");
 
-      const name = extractName(nameText);
-      const phone = extractPhone(`${phoneText}${nameText}`);
+      const name = normalizeDutyName(extractName(nameText || fullCellText));
+      const phone = extractPhone(`${phoneText}${fullCellText}`);
       if (!name && !phone) continue;
 
       slots.push({
@@ -671,6 +816,50 @@ function buildPublicRows(db) {
         overtimeRemark: checkin?.overtimeRemark || ""
       };
     });
+}
+
+function scoreRecognizedSlots(slots) {
+  return (slots || []).reduce((score, slot) => {
+    const hasName = Boolean(slot?.name);
+    const hasPhone = Boolean(slot?.phone);
+    if (hasName && hasPhone) return score + 2;
+    if (hasName || hasPhone) return score + 1;
+    return score;
+  }, 0);
+}
+
+async function recognizeScheduleByMultiPass(imageBuffer, weekStartDate) {
+  const modes = [Tesseract.PSM.AUTO, Tesseract.PSM.SPARSE_TEXT];
+  let best = null;
+
+  for (const mode of modes) {
+    let result = null;
+    try {
+      result = await Tesseract.recognize(imageBuffer, "chi_sim+eng", {
+        tessedit_pageseg_mode: mode
+      });
+    } catch (error) {
+      console.error("[OCR_PASS_ERROR]", error?.message || error);
+      continue;
+    }
+
+    const words = Array.isArray(result?.data?.words) ? result.data.words : [];
+    const slots = parseSlotsFromScreenshot(words, weekStartDate);
+    const score = scoreRecognizedSlots(slots);
+    const filledCount = slots.filter((s) => s.name || s.phone).length;
+    const rawTextPreview = String(result?.data?.text || "").slice(0, 2000);
+    const candidate = { slots, score, filledCount, rawTextPreview };
+    if (!best || candidate.score > best.score) best = candidate;
+    if (candidate.filledCount >= 16) break;
+  }
+
+  if (best) return best;
+  return {
+    slots: buildFullWeekTemplate(weekStartDate, []),
+    score: 0,
+    filledCount: 0,
+    rawTextPreview: ""
+  };
 }
 
 app.get("/api/health", (_req, res) => {
@@ -801,10 +990,9 @@ app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
   }
 
   try {
-    const result = await Tesseract.recognize(imageBuffer, "chi_sim+eng");
-    const words = Array.isArray(result?.data?.words) ? result.data.words : [];
-    const slots = parseSlotsFromScreenshot(words, weekStartDate);
-    const filledCount = slots.filter((s) => s.name || s.phone).length;
+    const recognized = await recognizeScheduleByMultiPass(imageBuffer, weekStartDate);
+    const slots = recognized.slots || [];
+    const filledCount = Number(recognized.filledCount || 0);
     return res.json({
       message:
         filledCount > 0
@@ -814,7 +1002,7 @@ app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
       weekStartDate,
       weekEndDate: addDays(weekStartDate, 6),
       slots,
-      rawTextPreview: String(result?.data?.text || "").slice(0, 2000)
+      rawTextPreview: recognized.rawTextPreview || ""
     });
   } catch (error) {
     console.error("[OCR_ERROR]", error.message);
@@ -840,7 +1028,7 @@ app.post("/api/schedule/import", authMiddleware, (req, res) => {
     const weekday = Number(item.weekday);
     const startTime = normalizeTime(item.startTime);
     const endTime = normalizeTime(item.endTime);
-    const name = String(item.name || "").trim();
+    const name = normalizeDutyName(item.name);
     const phone = normalizePhone(item.phone);
     const department = String(item.department || "").trim();
 

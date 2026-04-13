@@ -30,13 +30,13 @@
           <label>手机号<input id="regPhone" placeholder="请输入11位手机号" required /></label>
           <label>
             部门
-            <select id="regDepartment" required>
-              <option value="">请选择部门</option>
-              <option value="推广部">推广部</option>
-              <option value="运营部">运营部</option>
-              <option value="技术部">技术部</option>
-              <option value="综合部">综合部</option>
-            </select>
+            <input id="regDepartment" list="departmentList" placeholder="&#35831;&#36873;&#25321;&#25110;&#36755;&#20837;&#37096;&#38376;" required />
+            <datalist id="departmentList">
+              <option value="&#25512;&#24191;&#37096;"></option>
+              <option value="&#36816;&#33829;&#37096;"></option>
+              <option value="&#25216;&#26415;&#37096;"></option>
+              <option value="&#32508;&#21512;&#37096;"></option>
+            </datalist>
           </label>
           <label>密码<input id="regPassword" type="password" placeholder="6-32位，包含字母和数字" required /></label>
           <label>确认密码<input id="regConfirmPassword" type="password" placeholder="再次输入密码" required /></label>
