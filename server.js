@@ -9,9 +9,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "replace_this_in_production";
 const IS_PROD = process.env.NODE_ENV === "production";
-const DB_PATH =
+let DB_PATH =
   process.env.DB_PATH ||
   (IS_PROD ? "/tmp/db.json" : path.join(__dirname, "data", "db.json"));
+const FALLBACK_DB_PATH = "/tmp/db.json";
 
 if (IS_PROD && JWT_SECRET === "replace_this_in_production") {
   console.error("FATAL: JWT_SECRET is required in production environment.");
@@ -23,19 +24,29 @@ app.use(express.json({ limit: "1mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
 function ensureDbFile() {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
 
-  if (!fs.existsSync(DB_PATH)) {
-    const initData = {
-      users: [],
-      smsCodes: [],
-      schedules: [],
-      checkins: []
-    };
-    fs.writeFileSync(DB_PATH, JSON.stringify(initData, null, 2), "utf8");
+    if (!fs.existsSync(DB_PATH)) {
+      const initData = {
+        users: [],
+        smsCodes: [],
+        schedules: [],
+        checkins: []
+      };
+      fs.writeFileSync(DB_PATH, JSON.stringify(initData, null, 2), "utf8");
+    }
+  } catch (error) {
+    if (IS_PROD && DB_PATH !== FALLBACK_DB_PATH) {
+      console.warn(`DB path '${DB_PATH}' is not writable, fallback to '${FALLBACK_DB_PATH}'.`);
+      DB_PATH = FALLBACK_DB_PATH;
+      ensureDbFile();
+      return;
+    }
+    throw error;
   }
 }
 
@@ -51,7 +62,18 @@ function readDb() {
 }
 
 function writeDb(db) {
-  fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  try {
+    fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+  } catch (error) {
+    if (IS_PROD && DB_PATH !== FALLBACK_DB_PATH) {
+      console.warn(`Write DB failed on '${DB_PATH}', fallback to '${FALLBACK_DB_PATH}'.`);
+      DB_PATH = FALLBACK_DB_PATH;
+      ensureDbFile();
+      fs.writeFileSync(DB_PATH, JSON.stringify(db, null, 2), "utf8");
+      return;
+    }
+    throw error;
+  }
 }
 
 function normalizePhone(phone) {
