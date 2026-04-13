@@ -1,0 +1,14 @@
+{
+  "name": "duty-mini-app",
+  "version": "1.0.0",
+  "description": "手机号注册 + 值班表 + 前后20分钟签到的小程序风格应用",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2"
+  }
+}

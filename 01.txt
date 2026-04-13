@@ -1,0 +1,1273 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创业网值班签到系统</title>
+    <!-- 引入 Element UI 样式 -->
+    <link rel="stylesheet" href="https://unpkg.com/element-ui/lib/theme-chalk/index.css">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: "Helvetica Neue", Helvetica, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Arial, sans-serif;
+            background: linear-gradient(135deg, #f4f4f9 0%, #e8e8f0 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        #app {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .header {
+            text-align: center;
+            padding: 20px 30px;
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 30%, #FDB913 60%, #014EB8 100%);
+            border-radius: 10px;
+            margin-bottom: 30px;
+            box-shadow: 0 4px 15px rgba(255, 107, 53, 0.4);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 20px;
+        }
+
+        .header-logo {
+            width: 90px;
+            height: 90px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: white;
+            border-radius: 50%;
+            padding: 12px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .header-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .header-text {
+            flex: 1;
+        }
+
+        .header h1 {
+            color: white;
+            font-size: 32px;
+            font-weight: bold;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+            margin: 0;
+        }
+
+        .header-subtitle {
+            color: rgba(255, 255, 255, 0.95);
+            font-size: 14px;
+            margin-top: 5px;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.2);
+        }
+
+        .main-container {
+            background: white;
+            border-radius: 10px;
+            padding: 30px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .el-tabs__item {
+            font-size: 16px;
+            font-weight: bold;
+        }
+
+        .sign-form {
+            max-width: 600px;
+            margin: 30px auto;
+        }
+
+        .el-form-item__label {
+            font-weight: bold;
+            color: #333;
+        }
+
+        .el-radio-button__inner {
+            background-color: #f4f4f9;
+        }
+
+        .view-container {
+            margin-top: 20px;
+        }
+
+        .stats-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 50%, #FDB913 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(255, 107, 53, 0.3);
+        }
+
+        .stat-card h3 {
+            font-size: 14px;
+            margin-bottom: 10px;
+            opacity: 0.9;
+        }
+
+        .stat-card p {
+            font-size: 28px;
+            font-weight: bold;
+        }
+
+        .el-table {
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .el-table th {
+            background-color: #C41E3A !important;
+            color: white !important;
+            font-weight: bold;
+        }
+
+        .status-in {
+            color: #52C41A;
+            font-weight: bold;
+        }
+
+        .status-out {
+            color: #909399;
+            font-weight: bold;
+        }
+
+        .status-warning {
+            color: #D44206;
+            font-weight: bold;
+        }
+
+        .el-button--danger {
+            background-color: #D44206;
+            border-color: #D44206;
+        }
+
+        .el-button--danger:hover {
+            background-color: #f56c6c;
+            border-color: #f56c6c;
+        }
+
+        .el-button--primary {
+            background-color: #FF6B35;
+            border-color: #FF6B35;
+        }
+
+        .el-button--primary:hover {
+            background-color: #F7931E;
+            border-color: #F7931E;
+        }
+
+        .el-tabs__item.is-active {
+            color: #FF6B35;
+        }
+
+        .el-tabs__active-bar {
+            background-color: #FF6B35;
+        }
+
+        .el-radio-button__orig-radio:checked + .el-radio-button__inner {
+            background-color: #FF6B35;
+            border-color: #FF6B35;
+            box-shadow: -1px 0 0 0 #FF6B35;
+        }
+
+        .submit-btn {
+            width: 100%;
+            height: 50px;
+            font-size: 18px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+            border: none;
+        }
+
+        .submit-btn:hover {
+            background: linear-gradient(135deg, #F7931E 0%, #FDB913 100%);
+        }
+
+        .login-btn {
+            width: 100%;
+            height: 45px;
+            font-size: 16px;
+            font-weight: bold;
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+            border: none;
+        }
+
+        .action-buttons {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .highlight-yellow {
+            background-color: #f5d63b !important;
+            color: #333 !important;
+        }
+
+        .login-container {
+            max-width: 400px;
+            margin: 50px auto;
+            padding: 40px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 4px 12px rgba(1, 78, 184, 0.2);
+        }
+
+        .login-title {
+            text-align: center;
+            color: #FF6B35;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 30px;
+        }
+
+        .admin-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #52C41A 0%, #73D13D 100%);
+            color: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .admin-info span {
+            font-weight: bold;
+        }
+
+        .logout-btn {
+            background: rgba(255, 255, 255, 0.3);
+            border: 1px solid white;
+            color: white;
+        }
+
+        .logout-btn:hover {
+            background: rgba(255, 255, 255, 0.5);
+        }
+
+        .footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
+            color: #666;
+            font-size: 14px;
+        }
+
+        .footer-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            color: #FF6B35;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        .footer-wave {
+            width: 20px;
+            height: 20px;
+            background: linear-gradient(135deg, #FF6B35 0%, #FDB913 100%);
+            border-radius: 50%;
+            display: inline-block;
+        }
+
+        .change-pwd-btn {
+            background: linear-gradient(135deg, #0E84F2 0%, #33C9FC 100%);
+            border: none;
+            color: white;
+        }
+
+        .change-pwd-btn:hover {
+            background: linear-gradient(135deg, #33C9FC 0%, #5DDAFF 100%);
+        }
+
+        .el-dialog__header {
+            background: linear-gradient(135deg, #FF6B35 0%, #F7931E 100%);
+            padding: 15px 20px;
+        }
+
+        .el-dialog__title {
+            color: white;
+            font-weight: bold;
+        }
+
+        .el-dialog__headerbtn .el-dialog__close {
+            color: white;
+        }
+
+        .password-tips {
+            background: #fff3e0;
+            border-left: 4px solid #FF6B35;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #666;
+        }
+
+        .admin-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 3px solid white;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+            margin-right: 10px;
+        }
+
+        .admin-info-left {
+            display: flex;
+            align-items: center;
+        }
+
+        .avatar-upload-section {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+
+        .avatar-preview {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 15px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 4px solid #FF6B35;
+            position: relative;
+            background: #f5f5f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .avatar-preview img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .avatar-preview-placeholder {
+            font-size: 48px;
+            color: #ccc;
+        }
+
+        .avatar-upload-btn {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .avatar-upload-btn input[type="file"] {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <div class="header-logo">
+                <img src="创业网logo.png" alt="创业网logo">
+            </div>
+            <div class="header-text">
+                <h1>🌟 创业网值班签到系统 🌟</h1>
+                <div class="header-subtitle">中国大学生创业网 · 值班考勤管理平台</div>
+            </div>
+        </div>
+
+        <div class="main-container">
+            <el-tabs v-model="activeTab" type="border-card" @tab-click="handleTabClick">
+                <!-- 签到模块 -->
+                <el-tab-pane label="📝 值班签到" name="sign">
+                    <div class="sign-form">
+                        <el-form :model="signForm" :rules="rules" ref="signForm" label-width="100px">
+                            <el-form-item label="签到类型" prop="type">
+                                <el-radio-group v-model="signForm.type" size="medium">
+                                    <el-radio-button label="进站">进站</el-radio-button>
+                                    <el-radio-button label="出站">出站</el-radio-button>
+                                </el-radio-group>
+                            </el-form-item>
+
+                            <el-form-item label="姓名" prop="name">
+                                <el-input v-model="signForm.name" placeholder="请输入姓名" clearable></el-input>
+                            </el-form-item>
+
+                            <el-form-item label="所在部门" prop="department">
+                                <el-select v-model="signForm.department" placeholder="请选择部门" style="width: 100%">
+                                    <el-option label="推广部" value="推广部"></el-option>
+                                    <el-option label="运营部" value="运营部"></el-option>
+                                    <el-option label="技术部" value="技术部"></el-option>
+                                </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="值班班次" prop="shift">
+                                <el-select v-model="signForm.shift" placeholder="请选择班次" style="width: 100%">
+                                    <el-option label="第一班" value="第一班"></el-option>
+                                    <el-option label="第二班" value="第二班"></el-option>
+                                    <el-option label="第三班" value="第三班"></el-option>
+                                    <el-option label="第四班" value="第四班"></el-option>
+                                </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="备注" prop="remark">
+                                <el-input 
+                                    type="textarea" 
+                                    v-model="signForm.remark" 
+                                    placeholder="请输入值班备注（选填）"
+                                    :rows="4"
+                                    maxlength="200"
+                                    show-word-limit>
+                                </el-input>
+                            </el-form-item>
+
+                            <el-form-item>
+                                <el-button type="primary" @click="submitSign" class="submit-btn">
+                                    {{ signForm.type === '进站' ? '✅ 确认进站' : '🚪 确认出站' }}
+                                </el-button>
+                            </el-form-item>
+                        </el-form>
+                    </div>
+                </el-tab-pane>
+
+                <!-- 查看模块 - 需要管理员权限 -->
+                <el-tab-pane label="📊 查看考勤（管理员）" name="view">
+                    <!-- 未登录显示登录界面 -->
+                    <div v-if="!isAdminLoggedIn" class="login-container">
+                        <div class="login-title">🔐 管理员登录</div>
+                        <el-form :model="loginForm" :rules="loginRules" ref="loginForm" label-width="80px">
+                            <el-form-item label="账号" prop="username">
+                                <el-input v-model="loginForm.username" placeholder="请输入管理员账号" clearable>
+                                    <i slot="prefix" class="el-icon-user"></i>
+                                </el-input>
+                            </el-form-item>
+                            <el-form-item label="密码" prop="password">
+                                <el-input 
+                                    type="password" 
+                                    v-model="loginForm.password" 
+                                    placeholder="请输入密码" 
+                                    show-password
+                                    @keyup.enter.native="handleLogin">
+                                    <i slot="prefix" class="el-icon-lock"></i>
+                                </el-input>
+                            </el-form-item>
+                            <el-form-item>
+                                <el-button type="primary" @click="handleLogin" class="login-btn">登录</el-button>
+                            </el-form-item>
+                            <el-alert
+                                title="提示：默认账号 admin，密码 123456"
+                                type="info"
+                                :closable="false"
+                                show-icon>
+                            </el-alert>
+                        </el-form>
+                    </div>
+
+                    <!-- 已登录显示考勤数据 -->
+                    <div v-else class="view-container">
+                        <!-- 管理员信息 -->
+                        <div class="admin-info">
+                            <div class="admin-info-left">
+                                <img :src="currentAdminAvatar" class="admin-avatar" alt="头像">
+                                <span>👨‍💼 管理员：{{ currentAdmin }}</span>
+                            </div>
+                            <div style="display: flex; gap: 10px;">
+                                <el-button size="small" @click="showAccountDialog" class="change-pwd-btn">
+                                    <i class="el-icon-user"></i> 账户设置
+                                </el-button>
+                                <el-button size="small" @click="handleLogout" class="logout-btn">退出登录</el-button>
+                            </div>
+                        </div>
+
+                        <!-- 统计卡片 -->
+                        <div class="stats-cards">
+                            <div class="stat-card">
+                                <h3>今日总签到</h3>
+                                <p>{{ todayStats.total }}</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>当前在岗</h3>
+                                <p>{{ todayStats.onDuty }}</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>已完成班次</h3>
+                                <p>{{ todayStats.completed }}</p>
+                            </div>
+                            <div class="stat-card">
+                                <h3>总记录数</h3>
+                                <p>{{ records.length }}</p>
+                            </div>
+                        </div>
+
+                        <!-- 操作按钮 -->
+                        <div class="action-buttons">
+                            <el-button type="primary" icon="el-icon-refresh" @click="loadRecords">刷新数据</el-button>
+                            <el-button type="success" icon="el-icon-download" @click="exportData">导出数据</el-button>
+                            <el-button type="danger" icon="el-icon-delete" @click="clearAllRecords">清空所有记录</el-button>
+                        </div>
+
+                        <!-- 筛选器 -->
+                        <el-form :inline="true" class="filter-form">
+                            <el-form-item label="部门">
+                                <el-select v-model="filterDepartment" placeholder="全部部门" clearable @change="filterRecords">
+                                    <el-option label="全部" value=""></el-option>
+                                    <el-option label="推广部" value="推广部"></el-option>
+                                    <el-option label="运营部" value="运营部"></el-option>
+                                    <el-option label="技术部" value="技术部"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="班次">
+                                <el-select v-model="filterShift" placeholder="全部班次" clearable @change="filterRecords">
+                                    <el-option label="全部" value=""></el-option>
+                                    <el-option label="第一班" value="第一班"></el-option>
+                                    <el-option label="第二班" value="第二班"></el-option>
+                                    <el-option label="第三班" value="第三班"></el-option>
+                                    <el-option label="第四班" value="第四班"></el-option>
+                                </el-select>
+                            </el-form-item>
+                            <el-form-item label="日期">
+                                <el-date-picker
+                                    v-model="filterDate"
+                                    type="date"
+                                    placeholder="选择日期"
+                                    format="yyyy-MM-dd"
+                                    value-format="yyyy-MM-dd"
+                                    @change="filterRecords"
+                                    clearable>
+                                </el-date-picker>
+                            </el-form-item>
+                        </el-form>
+
+                        <!-- 考勤表格 -->
+                        <el-table 
+                            :data="filteredRecords" 
+                            border 
+                            stripe 
+                            style="width: 100%"
+                            :header-cell-style="{background:'#014EB8', color:'white'}">
+                            <el-table-column prop="id" label="序号" width="80" align="center"></el-table-column>
+                            <el-table-column prop="department" label="部门" width="120" align="center"></el-table-column>
+                            <el-table-column prop="name" label="姓名" width="120" align="center"></el-table-column>
+                            <el-table-column prop="shift" label="班次" width="120" align="center"></el-table-column>
+                            <el-table-column prop="checkInTime" label="进站时间" width="180" align="center">
+                                <template slot-scope="scope">
+                                    <span :class="scope.row.checkInTime ? 'status-in' : 'status-warning'">
+                                        {{ scope.row.checkInTime || '未进站' }}
+                                    </span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="checkOutTime" label="出站时间" width="180" align="center">
+                                <template slot-scope="scope">
+                                    <span :class="scope.row.checkOutTime ? 'status-out' : ''">
+                                        {{ scope.row.checkOutTime || '-' }}
+                                    </span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="remark" label="备注" min-width="150">
+                                <template slot-scope="scope">
+                                    <el-tooltip :content="scope.row.remark" placement="top" v-if="scope.row.remark">
+                                        <span>{{ scope.row.remark }}</span>
+                                    </el-tooltip>
+                                    <span v-else style="color: #ccc">-</span>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="100" align="center">
+                                <template slot-scope="scope">
+                                    <el-button type="danger" size="mini" @click="deleteRecord(scope.row.id)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                </el-tab-pane>
+            </el-tabs>
+        </div>
+
+        <div class="footer">
+            <div class="footer-logo">
+                <span class="footer-wave"></span>
+                <span>中国大学生创业网</span>
+            </div>
+            <div style="color: #999; font-size: 12px;">
+                © 2025 创业网值班签到系统 | 让管理更简单，让考勤更高效
+            </div>
+        </div>
+
+        <!-- 账户设置对话框 -->
+        <el-dialog 
+            title="👤 账户设置" 
+            :visible.sync="accountDialogVisible" 
+            width="500px"
+            :close-on-click-modal="false">
+            
+            <el-tabs v-model="accountTabActive">
+                <!-- 头像设置 -->
+                <el-tab-pane label="上传头像" name="avatar">
+                    <div class="avatar-upload-section">
+                        <div class="avatar-preview">
+                            <img v-if="previewAvatar" :src="previewAvatar" alt="头像预览">
+                            <i v-else class="el-icon-user avatar-preview-placeholder"></i>
+                        </div>
+                        <el-button type="primary" class="avatar-upload-btn" size="small">
+                            <i class="el-icon-upload"></i> 选择图片
+                            <input type="file" @change="handleAvatarChange" accept="image/*">
+                        </el-button>
+                        <p style="color: #999; font-size: 12px; margin-top: 10px;">
+                            支持jpg、png格式，建议尺寸200x200像素
+                        </p>
+                    </div>
+                </el-tab-pane>
+
+                <!-- 修改用户名 -->
+                <el-tab-pane label="修改用户名" name="username">
+                    <div class="password-tips">
+                        <i class="el-icon-info"></i> 修改用户名后，显示名称将立即更新
+                    </div>
+                    <el-form :model="usernameForm" :rules="usernameRules" ref="usernameForm" label-width="100px">
+                        <el-form-item label="当前用户名">
+                            <el-input :value="currentAdmin" disabled></el-input>
+                        </el-form-item>
+                        <el-form-item label="新用户名" prop="newUsername">
+                            <el-input 
+                                v-model="usernameForm.newUsername" 
+                                placeholder="请输入新的用户名"
+                                clearable>
+                                <i slot="prefix" class="el-icon-user"></i>
+                            </el-input>
+                        </el-form-item>
+                    </el-form>
+                    <div style="text-align: right; margin-top: 20px;">
+                        <el-button @click="accountDialogVisible = false">取消</el-button>
+                        <el-button type="primary" @click="submitChangeUsername">确认修改</el-button>
+                    </div>
+                </el-tab-pane>
+
+                <!-- 修改密码 -->
+                <el-tab-pane label="修改密码" name="password">
+                    <div class="password-tips">
+                        <i class="el-icon-warning"></i> 温馨提示：密码长度至少6位，建议包含字母和数字
+                    </div>
+                    <el-form :model="changePwdForm" :rules="changePwdRules" ref="changePwdForm" label-width="100px">
+                        <el-form-item label="旧密码" prop="oldPassword">
+                            <el-input 
+                                type="password" 
+                                v-model="changePwdForm.oldPassword" 
+                                placeholder="请输入当前密码"
+                                show-password
+                                autocomplete="off">
+                                <i slot="prefix" class="el-icon-lock"></i>
+                            </el-input>
+                        </el-form-item>
+                        <el-form-item label="新密码" prop="newPassword">
+                            <el-input 
+                                type="password" 
+                                v-model="changePwdForm.newPassword" 
+                                placeholder="请输入新密码（至少6位）"
+                                show-password
+                                autocomplete="off">
+                                <i slot="prefix" class="el-icon-key"></i>
+                            </el-input>
+                        </el-form-item>
+                        <el-form-item label="确认密码" prop="confirmPassword">
+                            <el-input 
+                                type="password" 
+                                v-model="changePwdForm.confirmPassword" 
+                                placeholder="请再次输入新密码"
+                                show-password
+                                autocomplete="off">
+                                <i slot="prefix" class="el-icon-key"></i>
+                            </el-input>
+                        </el-form-item>
+                    </el-form>
+                    <div style="text-align: right; margin-top: 20px;">
+                        <el-button @click="accountDialogVisible = false">取消</el-button>
+                        <el-button type="primary" @click="submitChangePwd">确认修改</el-button>
+                    </div>
+                </el-tab-pane>
+            </el-tabs>
+        </el-dialog>
+    </div>
+
+    <!-- 引入 Vue -->
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.6.14/dist/vue.js"></script>
+    <!-- 引入 Element UI -->
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    activeTab: 'sign',
+                    isAdminLoggedIn: false,
+                    currentAdmin: '',
+                    currentUsername: '',
+                    currentAdminAvatar: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCBmaWxsPSIjZjVmNWY1IiB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIvPjx0ZXh0IGZpbGw9IiNjY2MiIGZvbnQtZmFtaWx5PSJBcmlhbCIgZm9udC1zaXplPSI0MCIgeD0iNTAlIiB5PSI1MCUiIGR5PSIuM2VtIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj7lm77lg4844PC5L3RleHQ+PC9zdmc+',
+                    accountDialogVisible: false,
+                    accountTabActive: 'avatar',
+                    previewAvatar: '',
+                    usernameForm: {
+                        newUsername: ''
+                    },
+                    usernameRules: {
+                        newUsername: [
+                            { required: true, message: '请输入新用户名', trigger: 'blur' },
+                            { min: 2, max: 20, message: '用户名长度在2-20个字符', trigger: 'blur' }
+                        ]
+                    },
+                    loginForm: {
+                        username: '',
+                        password: ''
+                    },
+                    loginRules: {
+                        username: [
+                            { required: true, message: '请输入管理员账号', trigger: 'blur' }
+                        ],
+                        password: [
+                            { required: true, message: '请输入密码', trigger: 'blur' }
+                        ]
+                    },
+                    signForm: {
+                        type: '进站',
+                        name: '',
+                        department: '',
+                        shift: '',
+                        remark: ''
+                    },
+                    rules: {
+                        type: [
+                            { required: true, message: '请选择签到类型', trigger: 'change' }
+                        ],
+                        name: [
+                            { required: true, message: '请输入姓名', trigger: 'blur' },
+                            { min: 2, max: 10, message: '长度在 2 到 10 个字符', trigger: 'blur' }
+                        ],
+                        department: [
+                            { required: true, message: '请选择部门', trigger: 'change' }
+                        ],
+                        shift: [
+                            { required: true, message: '请选择班次', trigger: 'change' }
+                        ]
+                    },
+                    records: [],
+                    filteredRecords: [],
+                    filterDepartment: '',
+                    filterShift: '',
+                    filterDate: '',
+                    todayStats: {
+                        total: 0,
+                        onDuty: 0,
+                        completed: 0
+                    },
+                    // 管理员账号配置（实际使用时应该从后端获取）
+                    adminAccounts: [
+                        { username: 'admin', password: '123456', name: '系统管理员', avatar: '' },
+                        { username: 'manager', password: '888888', name: '考勤管理员', avatar: '' }
+                    ],
+                    changePwdForm: {
+                        oldPassword: '',
+                        newPassword: '',
+                        confirmPassword: ''
+                    },
+                    changePwdRules: {
+                        oldPassword: [
+                            { required: true, message: '请输入当前密码', trigger: 'blur' }
+                        ],
+                        newPassword: [
+                            { required: true, message: '请输入新密码', trigger: 'blur' },
+                            { min: 6, message: '密码长度至少6位', trigger: 'blur' }
+                        ],
+                        confirmPassword: [
+                            { required: true, message: '请再次输入新密码', trigger: 'blur' },
+                            { validator: (rule, value, callback) => {
+                                if (value !== this.changePwdForm.newPassword) {
+                                    callback(new Error('两次输入的密码不一致'));
+                                } else {
+                                    callback();
+                                }
+                            }, trigger: 'blur' }
+                        ]
+                    }
+                };
+            },
+            mounted() {
+                this.loadRecords();
+                this.calculateStats();
+                this.checkLoginStatus();
+                this.loadAdminAccounts(); // 加载管理员账号
+            },
+            methods: {
+                // 加载管理员账号（从localStorage读取，如果有自定义的话）
+                loadAdminAccounts() {
+                    const savedAccounts = localStorage.getItem('adminAccounts');
+                    if (savedAccounts) {
+                        this.adminAccounts = JSON.parse(savedAccounts);
+                    }
+                },
+
+                // 保存管理员账号到localStorage
+                saveAdminAccounts() {
+                    localStorage.setItem('adminAccounts', JSON.stringify(this.adminAccounts));
+                },
+
+                // 显示账户设置对话框
+                showAccountDialog() {
+                    this.accountDialogVisible = true;
+                    this.accountTabActive = 'avatar';
+                    this.previewAvatar = this.currentAdminAvatar;
+                    this.usernameForm.newUsername = '';
+                    this.changePwdForm = {
+                        oldPassword: '',
+                        newPassword: '',
+                        confirmPassword: ''
+                    };
+                },
+
+                // 处理头像上传
+                handleAvatarChange(event) {
+                    const file = event.target.files[0];
+                    if (!file) return;
+
+                    // 检查文件类型
+                    if (!file.type.match('image.*')) {
+                        this.$message.error('请选择图片文件！');
+                        return;
+                    }
+
+                    // 检查文件大小（限制2MB）
+                    if (file.size > 2 * 1024 * 1024) {
+                        this.$message.error('图片大小不能超过2MB！');
+                        return;
+                    }
+
+                    // 读取文件并预览
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        this.previewAvatar = e.target.result;
+                        this.currentAdminAvatar = e.target.result;
+                        
+                        // 保存到管理员账户
+                        const savedAdmin = localStorage.getItem('adminLoggedIn');
+                        if (savedAdmin) {
+                            const adminData = JSON.parse(savedAdmin);
+                            const adminIndex = this.adminAccounts.findIndex(
+                                a => a.username === adminData.username
+                            );
+                            if (adminIndex !== -1) {
+                                this.adminAccounts[adminIndex].avatar = e.target.result;
+                                this.saveAdminAccounts();
+                                
+                                // 更新登录状态
+                                adminData.avatar = e.target.result;
+                                localStorage.setItem('adminLoggedIn', JSON.stringify(adminData));
+                                
+                                this.$message.success('头像上传成功！');
+                            }
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                    
+                    // 清空input，允许重复上传同一文件
+                    event.target.value = '';
+                },
+
+                // 提交修改用户名
+                submitChangeUsername() {
+                    this.$refs.usernameForm.validate((valid) => {
+                        if (valid) {
+                            const savedAdmin = localStorage.getItem('adminLoggedIn');
+                            if (!savedAdmin) {
+                                this.$message.error('登录状态异常，请重新登录');
+                                return;
+                            }
+                            
+                            const adminData = JSON.parse(savedAdmin);
+                            const adminIndex = this.adminAccounts.findIndex(
+                                a => a.username === adminData.username
+                            );
+                            
+                            if (adminIndex === -1) {
+                                this.$message.error('管理员账号不存在');
+                                return;
+                            }
+                            
+                            // 修改用户名
+                            this.adminAccounts[adminIndex].name = this.usernameForm.newUsername;
+                            this.currentAdmin = this.usernameForm.newUsername;
+                            
+                            // 保存到localStorage
+                            this.saveAdminAccounts();
+                            
+                            // 更新登录状态
+                            adminData.name = this.usernameForm.newUsername;
+                            localStorage.setItem('adminLoggedIn', JSON.stringify(adminData));
+                            
+                            this.$message.success('用户名修改成功！');
+                            this.usernameForm.newUsername = '';
+                            this.$refs.usernameForm.resetFields();
+                        } else {
+                            this.$message.error('请正确填写用户名');
+                            return false;
+                        }
+                    });
+                },
+
+                // 取消修改密码
+                cancelChangePwd() {
+                    this.accountDialogVisible = false;
+                    if (this.$refs.changePwdForm) {
+                        this.$refs.changePwdForm.resetFields();
+                    }
+                },
+
+                // 提交修改密码
+                submitChangePwd() {
+                    this.$refs.changePwdForm.validate((valid) => {
+                        if (valid) {
+                            // 获取当前登录的管理员信息
+                            const savedAdmin = localStorage.getItem('adminLoggedIn');
+                            if (!savedAdmin) {
+                                this.$message.error('登录状态异常，请重新登录');
+                                return;
+                            }
+                            
+                            const adminData = JSON.parse(savedAdmin);
+                            const currentUsername = adminData.username;
+                            
+                            // 查找当前管理员账号
+                            const adminIndex = this.adminAccounts.findIndex(
+                                a => a.username === currentUsername
+                            );
+                            
+                            if (adminIndex === -1) {
+                                this.$message.error('管理员账号不存在');
+                                return;
+                            }
+                            
+                            // 验证旧密码
+                            if (this.adminAccounts[adminIndex].password !== this.changePwdForm.oldPassword) {
+                                this.$message.error('当前密码错误！');
+                                return;
+                            }
+                            
+                            // 修改密码
+                            this.adminAccounts[adminIndex].password = this.changePwdForm.newPassword;
+                            
+                            // 保存到localStorage
+                            this.saveAdminAccounts();
+                            
+                            this.$message.success('密码修改成功！');
+                            this.changePwdForm = {
+                                oldPassword: '',
+                                newPassword: '',
+                                confirmPassword: ''
+                            };
+                            this.$refs.changePwdForm.resetFields();
+                        } else {
+                            this.$message.error('请正确填写所有信息');
+                            return false;
+                        }
+                    });
+                },
+
+                // 检查登录状态
+                checkLoginStatus() {
+                    const savedAdmin = localStorage.getItem('adminLoggedIn');
+                    if (savedAdmin) {
+                        const adminData = JSON.parse(savedAdmin);
+                        this.isAdminLoggedIn = true;
+                        this.currentAdmin = adminData.name;
+                        this.currentUsername = adminData.username;
+                        this.currentAdminAvatar = adminData.avatar || this.currentAdminAvatar;
+                        this.previewAvatar = this.currentAdminAvatar;
+                    }
+                },
+
+                // 处理标签页切换
+                handleTabClick(tab) {
+                    if (tab.name === 'view' && !this.isAdminLoggedIn) {
+                        this.$message.warning('请先登录管理员账号');
+                    }
+                },
+
+                // 管理员登录
+                handleLogin() {
+                    this.$refs.loginForm.validate((valid) => {
+                        if (valid) {
+                            // 从最新的adminAccounts中查找（可能已被修改）
+                            const admin = this.adminAccounts.find(
+                                a => a.username === this.loginForm.username && 
+                                     a.password === this.loginForm.password
+                            );
+
+                            if (admin) {
+                                this.isAdminLoggedIn = true;
+                                this.currentAdmin = admin.name;
+                                this.currentUsername = admin.username;
+                                this.currentAdminAvatar = admin.avatar || this.currentAdminAvatar;
+                                this.previewAvatar = this.currentAdminAvatar;
+                                
+                                // 保存登录状态
+                                localStorage.setItem('adminLoggedIn', JSON.stringify({
+                                    username: admin.username,
+                                    name: admin.name,
+                                    avatar: admin.avatar || this.currentAdminAvatar
+                                }));
+
+                                this.$message.success('登录成功！欢迎回来，' + admin.name);
+                                this.loginForm.username = '';
+                                this.loginForm.password = '';
+                                
+                                // 登录成功后加载数据
+                                this.loadRecords();
+                                this.calculateStats();
+                            } else {
+                                this.$message.error('账号或密码错误！');
+                            }
+                        }
+                    });
+                },
+
+                // 退出登录
+                handleLogout() {
+                    this.$confirm('确定要退出登录吗？', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.isAdminLoggedIn = false;
+                        this.currentAdmin = '';
+                        localStorage.removeItem('adminLoggedIn');
+                        this.$message.success('已退出登录');
+                        this.activeTab = 'sign';
+                    }).catch(() => {});
+                },
+
+                // 提交签到
+                submitSign() {
+                    this.$refs.signForm.validate((valid) => {
+                        if (valid) {
+                            const currentTime = this.getCurrentTime();
+                            const today = this.getToday();
+                            
+                            // 查找是否已有该人员今日该班次的记录
+                            let existingRecord = this.records.find(r => 
+                                r.name === this.signForm.name && 
+                                r.shift === this.signForm.shift && 
+                                r.department === this.signForm.department &&
+                                r.date === today
+                            );
+
+                            if (this.signForm.type === '进站') {
+                                if (existingRecord && existingRecord.checkInTime) {
+                                    this.$message.warning('您今日该班次已经进站，无需重复签到！');
+                                    return;
+                                }
+                                
+                                if (existingRecord) {
+                                    // 更新进站时间
+                                    existingRecord.checkInTime = currentTime;
+                                    existingRecord.remark = this.signForm.remark;
+                                } else {
+                                    // 创建新记录
+                                    const newRecord = {
+                                        id: this.records.length + 1,
+                                        name: this.signForm.name,
+                                        department: this.signForm.department,
+                                        shift: this.signForm.shift,
+                                        checkInTime: currentTime,
+                                        checkOutTime: '',
+                                        remark: this.signForm.remark,
+                                        date: today
+                                    };
+                                    this.records.unshift(newRecord);
+                                }
+                                this.$message.success(`${this.signForm.name} 进站签到成功！`);
+                            } else {
+                                // 出站
+                                if (!existingRecord || !existingRecord.checkInTime) {
+                                    this.$message.error('请先进站签到！');
+                                    return;
+                                }
+                                if (existingRecord.checkOutTime) {
+                                    this.$message.warning('您今日该班次已经出站，无需重复签到！');
+                                    return;
+                                }
+                                existingRecord.checkOutTime = currentTime;
+                                if (this.signForm.remark) {
+                                    existingRecord.remark += ' | ' + this.signForm.remark;
+                                }
+                                this.$message.success(`${this.signForm.name} 出站签到成功！`);
+                            }
+
+                            this.saveRecords();
+                            this.filterRecords();
+                            this.calculateStats();
+                            this.resetForm();
+                        } else {
+                            this.$message.error('请完整填写表单信息！');
+                            return false;
+                        }
+                    });
+                },
+
+                // 重置表单
+                resetForm() {
+                    this.$refs.signForm.resetFields();
+                    this.signForm.type = '进站';
+                },
+
+                // 加载记录
+                loadRecords() {
+                    const savedRecords = localStorage.getItem('attendanceRecords');
+                    if (savedRecords) {
+                        this.records = JSON.parse(savedRecords);
+                    }
+                    this.filterRecords();
+                    this.calculateStats();
+                    this.$message.success('数据已刷新');
+                },
+
+                // 保存记录
+                saveRecords() {
+                    localStorage.setItem('attendanceRecords', JSON.stringify(this.records));
+                },
+
+                // 删除记录
+                deleteRecord(id) {
+                    this.$confirm('确定要删除这条记录吗？', '提示', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'warning'
+                    }).then(() => {
+                        this.records = this.records.filter(r => r.id !== id);
+                        this.saveRecords();
+                        this.filterRecords();
+                        this.calculateStats();
+                        this.$message.success('删除成功！');
+                    }).catch(() => {
+                        this.$message.info('已取消删除');
+                    });
+                },
+
+                // 清空所有记录
+                clearAllRecords() {
+                    this.$confirm('确定要清空所有记录吗？此操作不可恢复！', '警告', {
+                        confirmButtonText: '确定',
+                        cancelButtonText: '取消',
+                        type: 'error'
+                    }).then(() => {
+                        this.records = [];
+                        this.filteredRecords = [];
+                        localStorage.removeItem('attendanceRecords');
+                        this.calculateStats();
+                        this.$message.success('所有记录已清空！');
+                    }).catch(() => {
+                        this.$message.info('已取消操作');
+                    });
+                },
+
+                // 筛选记录
+                filterRecords() {
+                    this.filteredRecords = this.records.filter(record => {
+                        let match = true;
+                        if (this.filterDepartment && record.department !== this.filterDepartment) {
+                            match = false;
+                        }
+                        if (this.filterShift && record.shift !== this.filterShift) {
+                            match = false;
+                        }
+                        if (this.filterDate && record.date !== this.filterDate) {
+                            match = false;
+                        }
+                        return match;
+                    });
+                },
+
+                // 计算统计数据
+                calculateStats() {
+                    const today = this.getToday();
+                    const todayRecords = this.records.filter(r => r.date === today);
+                    
+                    this.todayStats.total = todayRecords.length;
+                    this.todayStats.onDuty = todayRecords.filter(r => r.checkInTime && !r.checkOutTime).length;
+                    this.todayStats.completed = todayRecords.filter(r => r.checkInTime && r.checkOutTime).length;
+                },
+
+                // 导出数据
+                exportData() {
+                    if (this.records.length === 0) {
+                        this.$message.warning('暂无数据可导出');
+                        return;
+                    }
+
+                    let csvContent = '\uFEFF'; // UTF-8 BOM
+                    csvContent += '序号,部门,姓名,班次,进站时间,出站时间,备注,日期\n';
+                    
+                    this.filteredRecords.forEach(record => {
+                        csvContent += `${record.id},${record.department},${record.name},${record.shift},`;
+                        csvContent += `${record.checkInTime || '未进站'},${record.checkOutTime || '未出站'},`;
+                        csvContent += `${record.remark || '-'},${record.date}\n`;
+                    });
+
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                    const link = document.createElement('a');
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    link.setAttribute('download', `考勤记录_${this.getToday()}.csv`);
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    this.$message.success('数据导出成功！');
+                },
+
+                // 获取当前时间
+                getCurrentTime() {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    const hours = String(now.getHours()).padStart(2, '0');
+                    const minutes = String(now.getMinutes()).padStart(2, '0');
+                    const seconds = String(now.getSeconds()).padStart(2, '0');
+                    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+                },
+
+                // 获取今日日期
+                getToday() {
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const day = String(now.getDate()).padStart(2, '0');
+                    return `${year}-${month}-${day}`;
+                }
+            }
+        });
+    </script>
+</body>
+</html>
