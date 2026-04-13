@@ -4,11 +4,18 @@ const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const tencentcloud = require("tencentcloud-sdk-nodejs");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "replace_this_in_production";
 const IS_PROD = process.env.NODE_ENV === "production";
+const SMS_PROVIDER = String(process.env.SMS_PROVIDER || "mock").toLowerCase();
+const SMS_CODE_TTL_SECONDS = Number(process.env.SMS_CODE_TTL_SECONDS || 300);
+const SMS_RESEND_COOLDOWN_SECONDS = Number(
+  process.env.SMS_RESEND_COOLDOWN_SECONDS || 60
+);
+const SmsClient = tencentcloud.sms.v20210111.Client;
 let DB_PATH =
   process.env.DB_PATH ||
   (IS_PROD ? "/tmp/db.json" : path.join(__dirname, "data", "db.json"));
@@ -52,7 +59,8 @@ function ensureDbFile() {
 
 function readDb() {
   const raw = fs.readFileSync(DB_PATH, "utf8");
-  const db = JSON.parse(raw);
+  const normalized = raw.replace(/^\uFEFF/, "");
+  const db = JSON.parse(normalized);
   return {
     users: Array.isArray(db.users) ? db.users : [],
     smsCodes: Array.isArray(db.smsCodes) ? db.smsCodes : [],
@@ -78,6 +86,10 @@ function writeDb(db) {
 
 function normalizePhone(phone) {
   return String(phone || "").replace(/\s+/g, "").trim();
+}
+
+function toE164CN(phone) {
+  return phone.startsWith("+") ? phone : `+86${phone}`;
 }
 
 function isValidPhone(phone) {
@@ -160,6 +172,63 @@ function createToken(user) {
   );
 }
 
+async function sendTencentSmsCode({ phone, code, purpose }) {
+  const secretId = process.env.SMS_TENCENT_SECRET_ID || "";
+  const secretKey = process.env.SMS_TENCENT_SECRET_KEY || "";
+  const appId = process.env.SMS_TENCENT_APP_ID || "";
+  const signName = process.env.SMS_TENCENT_SIGN_NAME || "";
+  const templateId = process.env.SMS_TENCENT_TEMPLATE_ID || "";
+  const region = process.env.SMS_TENCENT_REGION || "ap-guangzhou";
+  const expireMinutes = String(Math.ceil(SMS_CODE_TTL_SECONDS / 60));
+
+  if (!secretId || !secretKey || !appId || !signName || !templateId) {
+    throw new Error("腾讯云短信配置不完整，请检查环境变量");
+  }
+
+  const client = new SmsClient({
+    credential: {
+      secretId,
+      secretKey
+    },
+    region,
+    profile: {
+      httpProfile: {
+        endpoint: "sms.tencentcloudapi.com"
+      }
+    }
+  });
+
+  const params = {
+    SmsSdkAppId: appId,
+    SignName: signName,
+    TemplateId: templateId,
+    TemplateParamSet: [code, expireMinutes],
+    PhoneNumberSet: [toE164CN(phone)],
+    SessionContext: purpose
+  };
+
+  const response = await client.SendSms(params);
+  const firstStatus = Array.isArray(response.SendStatusSet)
+    ? response.SendStatusSet[0]
+    : null;
+
+  if (!firstStatus || firstStatus.Code !== "Ok") {
+    const reason = firstStatus?.Message || "短信网关返回异常";
+    throw new Error(`短信发送失败: ${reason}`);
+  }
+}
+
+async function sendSmsCode({ phone, code, purpose }) {
+  if (SMS_PROVIDER === "mock") {
+    return { mode: "mock" };
+  }
+  if (SMS_PROVIDER === "tencent") {
+    await sendTencentSmsCode({ phone, code, purpose });
+    return { mode: "tencent" };
+  }
+  throw new Error(`不支持的 SMS_PROVIDER: ${SMS_PROVIDER}`);
+}
+
 function authMiddleware(req, res, next) {
   const auth = req.headers.authorization || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7) : "";
@@ -185,7 +254,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, now: new Date().toISOString() });
 });
 
-app.post("/api/auth/send-code", (req, res) => {
+app.post("/api/auth/send-code", async (req, res) => {
   const phone = normalizePhone(req.body.phone);
   const purpose = req.body.purpose === "login" ? "login" : "register";
 
@@ -204,8 +273,28 @@ app.post("/api/auth/send-code", (req, res) => {
     return res.status(404).json({ message: "手机号未注册，请先注册" });
   }
 
+  const recentCode = db.smsCodes.find(
+    (item) =>
+      item.phone === phone &&
+      item.purpose === purpose &&
+      Date.now() - new Date(item.createdAt).getTime() <
+        SMS_RESEND_COOLDOWN_SECONDS * 1000
+  );
+  if (recentCode) {
+    return res.status(429).json({
+      message: `请求过于频繁，请 ${SMS_RESEND_COOLDOWN_SECONDS} 秒后重试`
+    });
+  }
+
   const code = String(Math.floor(100000 + Math.random() * 900000));
-  const expiresAt = Date.now() + 5 * 60 * 1000;
+  const expiresAt = Date.now() + SMS_CODE_TTL_SECONDS * 1000;
+
+  try {
+    await sendSmsCode({ phone, code, purpose });
+  } catch (error) {
+    console.error("[SMS_SEND_ERROR]", error.message);
+    return res.status(500).json({ message: "验证码发送失败，请稍后重试" });
+  }
 
   db.smsCodes = db.smsCodes.filter((item) => item.phone !== phone);
   db.smsCodes.push({
@@ -218,10 +307,17 @@ app.post("/api/auth/send-code", (req, res) => {
   });
   writeDb(db);
 
+  if (SMS_PROVIDER === "mock") {
+    return res.json({
+      message: "验证码已发送（演示环境直接返回验证码）",
+      code,
+      expiresInSeconds: SMS_CODE_TTL_SECONDS
+    });
+  }
+
   return res.json({
-    message: "验证码已发送（演示环境直接返回验证码）",
-    code,
-    expiresInSeconds: 300
+    message: "验证码已发送到手机，请注意查收",
+    expiresInSeconds: SMS_CODE_TTL_SECONDS
   });
 });
 

@@ -246,7 +246,11 @@ async function handleSendCode() {
       method: "POST",
       body: { phone, purpose: "register" }
     });
-    showToast(`验证码已发送（演示环境）：${data.code}`);
+    if (data.code) {
+      showToast(`验证码已发送（演示环境）：${data.code}`);
+    } else {
+      showToast("验证码已发送到手机，请注意查收");
+    }
     startCodeCountdown();
   } catch (error) {
     showToast(error.message, true);
