@@ -8,8 +8,10 @@ const jwt = require("jsonwebtoken");
 const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || "replace_this_in_production";
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, "data", "db.json");
 const IS_PROD = process.env.NODE_ENV === "production";
+const DB_PATH =
+  process.env.DB_PATH ||
+  (IS_PROD ? "/tmp/db.json" : path.join(__dirname, "data", "db.json"));
 
 if (IS_PROD && JWT_SECRET === "replace_this_in_production") {
   console.error("FATAL: JWT_SECRET is required in production environment.");

@@ -12,4 +12,4 @@
       - key: JWT_SECRET
         generateValue: true
       - key: DB_PATH
-        value: /app/data/db.json
+        value: /tmp/db.json

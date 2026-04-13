@@ -24,7 +24,7 @@ npm start
 - `NODE_ENV=production`
 - `PORT=3000`
 - `JWT_SECRET=请替换为高强度随机字符串`
-- `DB_PATH=/app/data/db.json`
+- `DB_PATH=/tmp/db.json`
 
 可参考 `.env.example`。
 
