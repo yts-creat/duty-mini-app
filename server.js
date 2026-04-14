@@ -76,6 +76,7 @@ function ensureDbFile() {
         users: [],
         dutySlots: [],
         checkins: [],
+        overtimeEntries: [],
         currentSchedule: null
       };
       fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2), "utf8");
@@ -97,6 +98,7 @@ function readDb() {
     users: Array.isArray(db.users) ? db.users : [],
     dutySlots: Array.isArray(db.dutySlots) ? db.dutySlots : Array.isArray(db.schedules) ? db.schedules : [],
     checkins: Array.isArray(db.checkins) ? db.checkins : [],
+    overtimeEntries: Array.isArray(db.overtimeEntries) ? db.overtimeEntries : [],
     currentSchedule: db.currentSchedule || null
   };
 }
@@ -106,6 +108,7 @@ function writeDb(db) {
     users: db.users,
     dutySlots: db.dutySlots,
     checkins: db.checkins,
+    overtimeEntries: db.overtimeEntries,
     currentSchedule: db.currentSchedule || null
   };
   try {
@@ -148,6 +151,15 @@ function normalizeTime(value) {
 
 function isValidTime(value) {
   return normalizeTime(value) !== "";
+}
+
+function diffMinutesBetweenTimes(startTime, endTime) {
+  const start = normalizeTime(startTime);
+  const end = normalizeTime(endTime);
+  if (!start || !end) return 0;
+  const [sh, sm] = start.split(":").map(Number);
+  const [eh, em] = end.split(":").map(Number);
+  return eh * 60 + em - (sh * 60 + sm);
 }
 
 function isValidDate(value) {
@@ -901,6 +913,26 @@ function buildPublicRows(db) {
     });
 }
 
+function buildOvertimeRows(db, phoneFilter = "") {
+  const rows = (db.overtimeEntries || [])
+    .filter((item) => !phoneFilter || item.phone === phoneFilter)
+    .slice()
+    .sort((a, b) => `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`))
+    .map((item) => ({
+      id: item.id,
+      date: item.date,
+      startTime: item.startTime,
+      endTime: item.endTime,
+      overtimeMinutes: Number(item.overtimeMinutes || 0),
+      name: item.name || "",
+      phone: item.phone || "",
+      department: item.department || "",
+      remark: item.remark || "",
+      createdAt: item.createdAt || ""
+    }));
+  return rows;
+}
+
 function scoreRecognizedSlots(slots) {
   return (slots || []).reduce((score, slot) => {
     const hasName = Boolean(slot?.name);
@@ -1245,6 +1277,7 @@ app.post("/api/schedule/import", authMiddleware, (req, res) => {
   };
   db.dutySlots = normalizedSlots;
   db.checkins = [];
+  db.overtimeEntries = [];
   writeDb(db);
 
   return res.json({
@@ -1276,6 +1309,14 @@ app.get("/api/my/slots", authMiddleware, (req, res) => {
   return res.json({
     currentSchedule: db.currentSchedule,
     slots: mine
+  });
+});
+
+app.get("/api/my/overtime", authMiddleware, (req, res) => {
+  const db = readDb();
+  return res.json({
+    currentSchedule: db.currentSchedule,
+    rows: buildOvertimeRows(db, req.user.phone)
   });
 });
 
@@ -1350,6 +1391,45 @@ app.post("/api/checkins/out", authMiddleware, (req, res) => {
   return res.json({ message: "出站签到成功", checkin: record });
 });
 
+app.post("/api/overtime", authMiddleware, (req, res) => {
+  const date = String(req.body.date || "").trim();
+  const startTime = normalizeTime(req.body.startTime || "");
+  const endTime = normalizeTime(req.body.endTime || "");
+  const remark = String(req.body.remark || "").trim();
+
+  if (!isValidDate(date)) {
+    return res.status(400).json({ message: "请选择正确的加班日期" });
+  }
+  if (!startTime || !endTime) {
+    return res.status(400).json({ message: "请选择加班开始和结束时间" });
+  }
+
+  const overtimeMinutes = diffMinutesBetweenTimes(startTime, endTime);
+  if (!Number.isInteger(overtimeMinutes) || overtimeMinutes <= 0 || overtimeMinutes > 720) {
+    return res.status(400).json({ message: "加班时长需要在 1-720 分钟之间，且结束时间要晚于开始时间" });
+  }
+
+  const db = readDb();
+  const entry = {
+    id: crypto.randomUUID(),
+    userId: req.user.id,
+    name: req.user.name,
+    phone: req.user.phone,
+    department: req.user.department || "",
+    date,
+    startTime,
+    endTime,
+    overtimeMinutes,
+    remark,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
+  };
+  db.overtimeEntries.push(entry);
+  writeDb(db);
+
+  return res.json({ message: "加班记录已保存", entry });
+});
+
 app.post("/api/checkins/overtime", authMiddleware, (req, res) => {
   const slotId = String(req.body.slotId || "");
   const overtimeStart = normalizeTime(req.body.overtimeStart || "");
@@ -1385,11 +1465,77 @@ app.post("/api/checkins/overtime", authMiddleware, (req, res) => {
 app.get("/api/public/overview", (_req, res) => {
   const db = readDb();
   const rows = buildPublicRows(db);
+  const overtimeRows = buildOvertimeRows(db);
   return res.json({
     currentSchedule: db.currentSchedule,
-    rows
+    rows,
+    overtimeRows
   });
 });
+
+function escapeCsvCell(value) {
+  return `"${String(value || "").replace(/"/g, '""')}"`;
+}
+
+function sendDutyExportCsv(res, rows) {
+  let csv = "\uFEFF";
+  csv += "日期,星期,班次,姓名,手机号,部门,签到状态,进站时间,出站时间,进站备注,出站备注\n";
+  for (const row of rows) {
+    const line = [
+      row.date,
+      row.weekday,
+      `${row.startTime}-${row.endTime}`,
+      row.name,
+      row.phone,
+      row.department,
+      row.status,
+      row.checkInAt ? formatDateTimeCN(row.checkInAt) : "",
+      row.checkOutAt ? formatDateTimeCN(row.checkOutAt) : "",
+      row.inRemark,
+      row.outRemark
+    ]
+      .map(escapeCsvCell)
+      .join(",");
+    csv += `${line}\n`;
+  }
+
+  const fileDate = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename*=UTF-8''duty_attendance_${fileDate}.csv`
+  );
+  return res.send(csv);
+}
+
+function sendOvertimeExportCsv(res, rows) {
+  let csv = "\uFEFF";
+  csv += "日期,开始时间,结束时间,加班时长(分钟),姓名,手机号,部门,加班备注,创建时间\n";
+  for (const row of rows) {
+    const line = [
+      row.date,
+      row.startTime,
+      row.endTime,
+      row.overtimeMinutes,
+      row.name,
+      row.phone,
+      row.department,
+      row.remark,
+      row.createdAt ? formatDateTimeCN(row.createdAt) : ""
+    ]
+      .map(escapeCsvCell)
+      .join(",");
+    csv += `${line}\n`;
+  }
+
+  const fileDate = new Date().toISOString().slice(0, 10);
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader(
+    "Content-Disposition",
+    `attachment; filename*=UTF-8''overtime_attendance_${fileDate}.csv`
+  );
+  return res.send(csv);
+}
 
 app.get("/api/public/export.csv", (_req, res) => {
   const db = readDb();
@@ -1425,6 +1571,16 @@ app.get("/api/public/export.csv", (_req, res) => {
     `attachment; filename*=UTF-8''attendance_public_${fileDate}.csv`
   );
   return res.send(csv);
+});
+
+app.get("/api/public/export-duty.csv", (_req, res) => {
+  const db = readDb();
+  return sendDutyExportCsv(res, buildPublicRows(db));
+});
+
+app.get("/api/public/export-overtime.csv", (_req, res) => {
+  const db = readDb();
+  return sendOvertimeExportCsv(res, buildOvertimeRows(db));
 });
 
 app.get("*", (_req, res) => {

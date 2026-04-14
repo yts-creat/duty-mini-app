@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
@@ -9,71 +9,167 @@
   <body>
     <main class="app-shell">
       <header class="hero">
-        <img class="hero-logo" src="./logo.svg" alt="创业网logo" />
-        <div>
-          <h1>创业网值班签到系统</h1>
-          <p>按本周值班表签到、备注工作内容、记录加班并公共统计导出</p>
+        <div class="hero-surface">
+          <div class="hero-brand">
+            <img class="hero-banner" src="./brand-banner.svg" alt="中国大学生创业网" />
+            <div class="hero-copy">
+              <p class="hero-kicker">Duty Mini App</p>
+              <h1>中国大学生创业网值班签到台</h1>
+              <p>
+                根据值班表完成签到，独立登记任意日期加班，并在公共看板中分别查看正常值班和加班统计。
+              </p>
+            </div>
+          </div>
+          <div class="hero-tools">
+            <p class="hero-tools-title">主题颜色</p>
+            <div id="themeToolbar" class="theme-toolbar">
+              <button class="theme-btn active" type="button" data-theme-name="sunrise">
+                <span class="theme-dot sunrise"></span>
+                朝霞橙
+              </button>
+              <button class="theme-btn" type="button" data-theme-name="ocean">
+                <span class="theme-dot ocean"></span>
+                深海蓝
+              </button>
+              <button class="theme-btn" type="button" data-theme-name="forest">
+                <span class="theme-dot forest"></span>
+                山林绿
+              </button>
+              <button class="theme-btn" type="button" data-theme-name="berry">
+                <span class="theme-dot berry"></span>
+                玫瑰红
+              </button>
+            </div>
+          </div>
         </div>
       </header>
 
       <section id="toast" class="toast hidden"></section>
 
-      <section id="authView">
-        <div class="switches">
-          <button class="switch active" id="switchRegister" type="button">注册</button>
-          <button class="switch" id="switchLogin" type="button">登录</button>
+      <section id="authView" class="view-grid">
+        <div class="stack">
+          <div class="switches">
+            <button class="switch active" id="switchRegister" type="button">注册</button>
+            <button class="switch" id="switchLogin" type="button">登录</button>
+          </div>
+
+          <form id="registerForm" class="card auth-card">
+            <div class="card-title-row">
+              <h2>新用户注册</h2>
+              <span class="soft-badge">手机号 + 密码</span>
+            </div>
+            <div class="form-grid two-col">
+              <label>
+                姓名
+                <input id="regName" placeholder="请输入姓名" required />
+              </label>
+              <label>
+                手机号
+                <input id="regPhone" placeholder="请输入 11 位手机号" required />
+              </label>
+              <label>
+                部门
+                <input id="regDepartment" list="departmentList" placeholder="请选择或输入部门" required />
+                <datalist id="departmentList">
+                  <option value="推广部"></option>
+                  <option value="运营部"></option>
+                  <option value="技术部"></option>
+                </datalist>
+              </label>
+              <label>
+                密码
+                <input id="regPassword" type="password" placeholder="6-32 位，包含字母和数字" required />
+              </label>
+              <label class="field-span-2">
+                确认密码
+                <input id="regConfirmPassword" type="password" placeholder="再次输入密码" required />
+              </label>
+            </div>
+            <button type="submit" class="primary wide-btn">注册并登录</button>
+          </form>
+
+          <form id="loginForm" class="card auth-card hidden">
+            <div class="card-title-row">
+              <h2>账号登录</h2>
+              <span class="soft-badge">直接进入值班台</span>
+            </div>
+            <div class="form-grid">
+              <label>
+                手机号
+                <input id="loginPhone" placeholder="请输入 11 位手机号" required />
+              </label>
+              <label>
+                密码
+                <input id="loginPassword" type="password" placeholder="请输入密码" required />
+              </label>
+            </div>
+            <button type="submit" class="primary wide-btn">登录</button>
+          </form>
         </div>
 
-        <form id="registerForm" class="card">
-          <h2>新用户注册</h2>
-          <label>姓名<input id="regName" placeholder="请输入姓名" required /></label>
-          <label>手机号<input id="regPhone" placeholder="请输入11位手机号" required /></label>
-          <label>
-            部门
-            <input id="regDepartment" list="departmentList" placeholder="&#35831;&#36873;&#25321;&#25110;&#36755;&#20837;&#37096;&#38376;" required />
-            <datalist id="departmentList">
-              <option value="&#25512;&#24191;&#37096;"></option>
-              <option value="&#36816;&#33829;&#37096;"></option>
-              <option value="&#25216;&#26415;&#37096;"></option>
-            </datalist>
-          </label>
-          <label>密码<input id="regPassword" type="password" placeholder="6-32位，包含字母和数字" required /></label>
-          <label>确认密码<input id="regConfirmPassword" type="password" placeholder="再次输入密码" required /></label>
-          <button type="submit" class="primary">注册并登录</button>
-        </form>
+        <div class="stack">
+          <div class="card board-intro-card">
+            <div class="inline-head align-start">
+              <div>
+                <h2>公共看板</h2>
+                <p id="guestScheduleInfo" class="sub">暂无值班表，请先导入本周排班。</p>
+              </div>
+              <div class="inline-actions">
+                <button id="refreshPublicGuestBtn" type="button" class="secondary">刷新</button>
+                <button id="exportGuestDutyBtn" type="button" class="primary">导出正常值班</button>
+                <button id="exportGuestOvertimeBtn" type="button" class="secondary">导出加班</button>
+              </div>
+            </div>
+            <div id="guestStats" class="metric-grid"></div>
+          </div>
 
-        <form id="loginForm" class="card hidden">
-          <h2>账号登录</h2>
-          <label>手机号<input id="loginPhone" placeholder="请输入11位手机号" required /></label>
-          <label>密码<input id="loginPassword" type="password" placeholder="请输入密码" required /></label>
-          <button type="submit" class="primary">登录</button>
-        </form>
-
-        <div class="card">
-          <div class="inline-head">
-            <h2>公共看板（无需登录）</h2>
-            <div class="inline-actions">
-              <button id="refreshPublicGuestBtn" type="button" class="secondary">刷新</button>
-              <button id="exportPublicGuestBtn" type="button" class="primary">导出统计</button>
+          <div class="card table-card">
+            <div class="card-title-row">
+              <h2>正常值班统计</h2>
+              <span class="soft-badge">无需登录可查看</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>班次</th>
+                    <th>姓名</th>
+                    <th>手机号</th>
+                    <th>部门</th>
+                    <th>状态</th>
+                    <th>进站</th>
+                    <th>出站</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody id="publicGuestTableBody"></tbody>
+              </table>
             </div>
           </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>日期</th>
-                  <th>班次</th>
-                  <th>姓名</th>
-                  <th>手机号</th>
-                  <th>部门</th>
-                  <th>状态</th>
-                  <th>进站</th>
-                  <th>出站</th>
-                  <th>加班</th>
-                </tr>
-              </thead>
-              <tbody id="publicGuestTableBody"></tbody>
-            </table>
+
+          <div class="card table-card">
+            <div class="card-title-row">
+              <h2>加班统计</h2>
+              <span class="soft-badge">独立登记</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>开始</th>
+                    <th>结束</th>
+                    <th>时长</th>
+                    <th>姓名</th>
+                    <th>手机号</th>
+                    <th>部门</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody id="publicGuestOvertimeBody"></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </section>
@@ -88,28 +184,109 @@
           <button type="button" id="logoutBtn" class="secondary">退出登录</button>
         </div>
 
-        <div class="switches">
+        <div class="switches tab-switches">
           <button class="switch active" id="tabMine" type="button">我的值班</button>
           <button class="switch" id="tabPublic" type="button">公共看板</button>
           <button class="switch" id="tabImport" type="button">导入值班表</button>
         </div>
 
         <section id="panelMine" class="tab-panel">
-          <div class="card">
-            <h2>本周安排</h2>
-            <p id="currentScheduleInfo" class="sub">暂无值班表，请先导入。</p>
+          <div class="card board-intro-card">
+            <div class="card-title-row">
+              <div>
+                <h2>本周安排</h2>
+                <p id="currentScheduleInfo" class="sub">暂无值班表，请先导入本周排班。</p>
+              </div>
+              <span class="soft-badge">前后 20 分钟可签到</span>
+            </div>
+            <div id="mineStats" class="metric-grid"></div>
+          </div>
+
+          <div class="mine-grid">
+            <div class="card spotlight-card">
+              <div class="card-title-row">
+                <div>
+                  <h2>独立加班登记</h2>
+                  <p class="sub">加班不要求必须处于值班时段内，可自行选择日期和起止时间。</p>
+                </div>
+                <span class="soft-badge">单独统计导出</span>
+              </div>
+              <div class="form-grid two-col overtime-form-grid">
+                <label>
+                  加班日期
+                  <input id="overtimeDate" type="date" />
+                </label>
+                <label>
+                  开始时间
+                  <input id="overtimeStart" type="time" />
+                </label>
+                <label>
+                  结束时间
+                  <input id="overtimeEnd" type="time" />
+                </label>
+                <label class="field-span-2">
+                  加班备注
+                  <textarea id="overtimeRemark" placeholder="例如：活动支援、内容审核、问题处理、数据整理"></textarea>
+                </label>
+              </div>
+              <div class="inline-actions">
+                <button id="saveOvertimeBtn" type="button" class="primary">提交加班记录</button>
+                <button id="resetOvertimeBtn" type="button" class="secondary">重置</button>
+                <button id="refreshMineBtn" type="button" class="ghost">刷新我的数据</button>
+              </div>
+            </div>
+
+            <div class="card table-card">
+              <div class="card-title-row">
+                <h2>我的加班记录</h2>
+                <span class="soft-badge">按时间倒序</span>
+              </div>
+              <div class="table-wrap compact-table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>日期</th>
+                      <th>开始</th>
+                      <th>结束</th>
+                      <th>时长</th>
+                      <th>备注</th>
+                    </tr>
+                  </thead>
+                  <tbody id="myOvertimeBody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <div class="card section-card">
+            <div class="card-title-row">
+              <h2>我的本周值班</h2>
+              <span class="soft-badge">只展示与你匹配的班次</span>
+            </div>
           </div>
           <div id="mySlots" class="cards"></div>
         </section>
 
         <section id="panelPublic" class="tab-panel hidden">
-          <div class="card">
-            <div class="inline-head">
-              <h2>公共签到与加班看板</h2>
+          <div class="card board-intro-card">
+            <div class="inline-head align-start">
+              <div>
+                <h2>公共看板</h2>
+                <p id="publicScheduleInfo" class="sub">暂无值班表，请先导入本周排班。</p>
+              </div>
               <div class="inline-actions">
                 <button id="refreshPublicBtn" type="button" class="secondary">刷新</button>
-                <button id="exportPublicBtn" type="button" class="primary">导出统计</button>
+                <button id="exportPublicDutyBtn" type="button" class="primary">导出正常值班</button>
+                <button id="exportPublicOvertimeBtn" type="button" class="secondary">导出加班</button>
               </div>
+            </div>
+            <div id="publicStats" class="metric-grid"></div>
+          </div>
+
+          <div class="card table-card">
+            <div class="card-title-row">
+              <h2>正常值班统计</h2>
+              <span class="soft-badge">签到进度</span>
             </div>
             <div class="table-wrap">
               <table id="publicTable">
@@ -123,28 +300,77 @@
                     <th>状态</th>
                     <th>进站</th>
                     <th>出站</th>
-                    <th>加班</th>
+                    <th>备注</th>
                   </tr>
                 </thead>
                 <tbody id="publicTableBody"></tbody>
               </table>
             </div>
           </div>
+
+          <div class="card table-card">
+            <div class="card-title-row">
+              <h2>加班统计</h2>
+              <span class="soft-badge">独立加班表</span>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>日期</th>
+                    <th>开始</th>
+                    <th>结束</th>
+                    <th>时长</th>
+                    <th>姓名</th>
+                    <th>手机号</th>
+                    <th>部门</th>
+                    <th>备注</th>
+                  </tr>
+                </thead>
+                <tbody id="publicOvertimeBody"></tbody>
+              </table>
+            </div>
+          </div>
         </section>
 
         <section id="panelImport" class="tab-panel hidden">
-          <div class="card">
-            <h2>导入值班表截图</h2>
-            <p class="warn">每次确认导入都会清空公共界面的历史签到与加班数据。</p>
-            <label>标题<input id="importTitle" placeholder="例如：创业网第七周值班表" /></label>
-            <label>本周周一日期<input id="importWeekStart" type="date" /></label>
-            <label>值班表文件<input id="importImageFile" type="file" accept="application/pdf,.pdf,image/*" /></label>
-            <button id="recognizeBtn" type="button" class="primary">识别文件</button>
+          <div class="card import-card">
+            <div class="card-title-row">
+              <div>
+                <h2>导入值班表</h2>
+                <p class="sub">优先支持 PDF 识别，也支持清晰的 PNG / JPG 图片。</p>
+              </div>
+              <span class="soft-badge">重新导入会清空历史签到与加班数据</span>
+            </div>
+            <p class="warn">每次确认导入新的值班表时，公共看板中的历史签到记录和加班记录都会被删除。</p>
+            <div class="form-grid two-col">
+              <label>
+                标题
+                <input id="importTitle" placeholder="例如：创业网第七周值班表" />
+              </label>
+              <label>
+                本周周一日期
+                <input id="importWeekStart" type="date" />
+              </label>
+              <label class="field-span-2">
+                值班表文件
+                <input id="importImageFile" type="file" accept="application/pdf,.pdf,image/*" />
+              </label>
+            </div>
+            <div class="inline-actions">
+              <button id="recognizeBtn" type="button" class="primary">识别文件</button>
+            </div>
             <p id="recognizeResult" class="sub"></p>
           </div>
 
           <div id="importEditorCard" class="card hidden">
-            <h2>识别结果（可编辑后再导入）</h2>
+            <div class="card-title-row">
+              <div>
+                <h2>识别结果</h2>
+                <p class="sub">可以手工修改后再导入，没人值班的格子直接留空即可。</p>
+              </div>
+              <span class="soft-badge">支持继续补行</span>
+            </div>
             <div class="table-wrap">
               <table>
                 <thead>

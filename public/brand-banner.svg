@@ -1,0 +1,20 @@
+﻿<svg width="568" height="120" viewBox="0 0 568 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="568" height="120" rx="18" fill="#FFF7F5"/>
+  <rect x="1" y="1" width="566" height="118" rx="17" stroke="#F1DDD8"/>
+  <g transform="translate(18 12)">
+    <ellipse cx="58" cy="49" rx="46" ry="39" fill="url(#swirlGlow)" opacity="0.26"/>
+    <path d="M14 72C28 39 53 19 86 13C68 22 55 34 46 50C38 65 28 73 14 72Z" fill="#D8341B"/>
+    <path d="M20 56C34 30 58 15 90 13C68 24 54 38 48 55C42 71 33 79 20 79C26 73 24 66 20 56Z" fill="#F05C22"/>
+    <path d="M34 53C47 31 67 19 96 18C77 28 64 40 59 54C54 68 46 75 34 76C38 69 38 61 34 53Z" fill="#F58E1F"/>
+    <path d="M48 52C60 35 77 25 100 26C84 33 73 43 69 54C65 64 58 71 48 72C51 66 52 59 48 52Z" fill="#FDB913"/>
+  </g>
+  <text x="150" y="72" font-family="Microsoft YaHei, PingFang SC, sans-serif" font-size="50" font-weight="700" fill="#8E1332">中国大学生</text>
+  <text x="382" y="72" font-family="KaiTi, STKaiti, serif" font-size="56" font-weight="700" fill="#1E9B33">创</text>
+  <text x="425" y="72" font-family="KaiTi, STKaiti, serif" font-size="56" font-weight="700" fill="#8E1332">业网</text>
+  <defs>
+    <radialGradient id="swirlGlow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(58 49) rotate(90) scale(39 46)">
+      <stop stop-color="#FFB56D"/>
+      <stop offset="1" stop-color="#FFB56D" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+</svg>

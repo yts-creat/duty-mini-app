@@ -1,12 +1,15 @@
-const state = {
+﻿const state = {
   token: localStorage.getItem("token") || "",
   user: null,
   authMode: "register",
   activeTab: "mine",
   currentSchedule: null,
   mySlots: [],
+  myOvertimeRows: [],
   publicRows: [],
-  importDraft: []
+  publicOvertimeRows: [],
+  importDraft: [],
+  theme: localStorage.getItem("theme") || "sunrise"
 };
 
 const weekdayMap = {
@@ -20,14 +23,16 @@ const weekdayMap = {
 };
 
 const importWeekdayMap = {
-  1: "\u5468\u4e00",
-  2: "\u5468\u4e8c",
-  3: "\u5468\u4e09",
-  4: "\u5468\u56db",
-  5: "\u5468\u4e94",
-  6: "\u5468\u516d",
-  7: "\u5468\u65e5"
+  1: "周一",
+  2: "周二",
+  3: "周三",
+  4: "周四",
+  5: "周五",
+  6: "周六",
+  7: "周日"
 };
+
+const themeNames = new Set(["sunrise", "ocean", "forest", "berry"]);
 
 const els = {
   toast: document.getElementById("toast"),
@@ -48,13 +53,30 @@ const els = {
   panelPublic: document.getElementById("panelPublic"),
   panelImport: document.getElementById("panelImport"),
   currentScheduleInfo: document.getElementById("currentScheduleInfo"),
+  guestScheduleInfo: document.getElementById("guestScheduleInfo"),
+  publicScheduleInfo: document.getElementById("publicScheduleInfo"),
+  mineStats: document.getElementById("mineStats"),
+  guestStats: document.getElementById("guestStats"),
+  publicStats: document.getElementById("publicStats"),
   mySlots: document.getElementById("mySlots"),
+  myOvertimeBody: document.getElementById("myOvertimeBody"),
   publicTableBody: document.getElementById("publicTableBody"),
   publicGuestTableBody: document.getElementById("publicGuestTableBody"),
+  publicOvertimeBody: document.getElementById("publicOvertimeBody"),
+  publicGuestOvertimeBody: document.getElementById("publicGuestOvertimeBody"),
   refreshPublicBtn: document.getElementById("refreshPublicBtn"),
   refreshPublicGuestBtn: document.getElementById("refreshPublicGuestBtn"),
-  exportPublicBtn: document.getElementById("exportPublicBtn"),
-  exportPublicGuestBtn: document.getElementById("exportPublicGuestBtn"),
+  refreshMineBtn: document.getElementById("refreshMineBtn"),
+  exportPublicDutyBtn: document.getElementById("exportPublicDutyBtn"),
+  exportPublicOvertimeBtn: document.getElementById("exportPublicOvertimeBtn"),
+  exportGuestDutyBtn: document.getElementById("exportGuestDutyBtn"),
+  exportGuestOvertimeBtn: document.getElementById("exportGuestOvertimeBtn"),
+  overtimeDate: document.getElementById("overtimeDate"),
+  overtimeStart: document.getElementById("overtimeStart"),
+  overtimeEnd: document.getElementById("overtimeEnd"),
+  overtimeRemark: document.getElementById("overtimeRemark"),
+  saveOvertimeBtn: document.getElementById("saveOvertimeBtn"),
+  resetOvertimeBtn: document.getElementById("resetOvertimeBtn"),
   importTitle: document.getElementById("importTitle"),
   importWeekStart: document.getElementById("importWeekStart"),
   importImageFile: document.getElementById("importImageFile"),
@@ -63,7 +85,9 @@ const els = {
   importEditorCard: document.getElementById("importEditorCard"),
   importRowsBody: document.getElementById("importRowsBody"),
   addImportRowBtn: document.getElementById("addImportRowBtn"),
-  confirmImportBtn: document.getElementById("confirmImportBtn")
+  confirmImportBtn: document.getElementById("confirmImportBtn"),
+  themeToolbar: document.getElementById("themeToolbar"),
+  themeButtons: Array.from(document.querySelectorAll(".theme-btn"))
 };
 
 function toast(message, isError = false) {
@@ -88,7 +112,41 @@ function escapeHtml(value) {
 function formatDateTime(value) {
   if (!value) return "-";
   const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "-";
   return date.toLocaleString("zh-CN", { hour12: false });
+}
+
+function formatDuration(minutes) {
+  const value = Number(minutes || 0);
+  if (!value) return "-";
+  const hours = Math.floor(value / 60);
+  const rest = value % 60;
+  if (!hours) return `${rest} 分钟`;
+  if (!rest) return `${hours} 小时`;
+  return `${hours} 小时 ${rest} 分钟`;
+}
+
+function getScheduleText() {
+  if (!state.currentSchedule) {
+    return "暂无值班表，请先导入本周排班。";
+  }
+  const schedule = state.currentSchedule;
+  return `${schedule.title}（${schedule.weekStartDate} - ${schedule.weekEndDate}）`;
+}
+
+function metricMarkup(label, value, hint) {
+  return `
+    <article class="metric-card">
+      <p class="metric-label">${escapeHtml(label)}</p>
+      <strong class="metric-value">${escapeHtml(value)}</strong>
+      <p class="metric-hint">${escapeHtml(hint || "")}</p>
+    </article>
+  `;
+}
+
+function renderMetricGrid(target, metrics) {
+  if (!target) return;
+  target.innerHTML = metrics.map((item) => metricMarkup(item.label, item.value, item.hint)).join("");
 }
 
 function setAuthMode(mode) {
@@ -115,21 +173,31 @@ function setAuthed(authed) {
   els.appView.classList.toggle("hidden", !authed);
 }
 
+function applyTheme(themeName) {
+  const nextTheme = themeNames.has(themeName) ? themeName : "sunrise";
+  state.theme = nextTheme;
+  localStorage.setItem("theme", nextTheme);
+  document.documentElement.setAttribute("data-theme", nextTheme);
+  for (const button of els.themeButtons) {
+    button.classList.toggle("active", button.dataset.themeName === nextTheme);
+  }
+}
+
 function saveSession(token, user) {
   state.token = token;
   state.user = user;
   localStorage.setItem("token", token);
   localStorage.setItem("user", JSON.stringify(user));
   setAuthed(true);
+  setTab("mine");
   renderUser();
 }
 
 function clearSession() {
   state.token = "";
   state.user = null;
-  state.currentSchedule = null;
   state.mySlots = [];
-  state.publicRows = [];
+  state.myOvertimeRows = [];
   localStorage.removeItem("token");
   localStorage.removeItem("user");
   setAuthed(false);
@@ -143,6 +211,7 @@ async function api(path, options = {}) {
   if (state.token) {
     headers.Authorization = `Bearer ${state.token}`;
   }
+
   const resp = await fetch(path, {
     method: options.method || "GET",
     headers,
@@ -151,7 +220,9 @@ async function api(path, options = {}) {
 
   const data = await resp.json().catch(() => ({}));
   if (!resp.ok) {
-    if (resp.status === 401) clearSession();
+    if (resp.status === 401) {
+      clearSession();
+    }
     throw new Error(data.message || "请求失败");
   }
   return data;
@@ -159,18 +230,54 @@ async function api(path, options = {}) {
 
 function renderUser() {
   if (!state.user) return;
-  els.userName.textContent = state.user.name;
-  els.userPhone.textContent = state.user.phone;
+  els.userName.textContent = state.user.name || "-";
+  els.userPhone.textContent = state.user.phone || "-";
   els.userDepartment.textContent = state.user.department || "-";
 }
 
-function renderScheduleTitle() {
-  if (!state.currentSchedule) {
-    els.currentScheduleInfo.textContent = "暂无值班表，请先在“导入值班表”里上传并识别。";
-    return;
-  }
-  const s = state.currentSchedule;
-  els.currentScheduleInfo.textContent = `${s.title}（${s.weekStartDate} ~ ${s.weekEndDate}）`;
+function renderScheduleInfo() {
+  const text = getScheduleText();
+  els.currentScheduleInfo.textContent = text;
+  els.guestScheduleInfo.textContent = text;
+  els.publicScheduleInfo.textContent = text;
+}
+
+function renderMineMetrics() {
+  const total = state.mySlots.length;
+  const completed = state.mySlots.filter((slot) => slot.checkin?.checkOutAt).length;
+  const checkedIn = state.mySlots.filter(
+    (slot) => slot.checkin?.checkInAt && !slot.checkin?.checkOutAt
+  ).length;
+  const pending = Math.max(total - completed - checkedIn, 0);
+  const overtimeMinutes = state.myOvertimeRows.reduce(
+    (sum, row) => sum + Number(row.overtimeMinutes || 0),
+    0
+  );
+
+  renderMetricGrid(els.mineStats, [
+    { label: "本周班次", value: `${total}`, hint: "与你手机号或姓名匹配" },
+    { label: "已完成", value: `${completed}`, hint: "已进站且已出站" },
+    { label: "待完成", value: `${pending}`, hint: checkedIn ? `其中 ${checkedIn} 个已进站` : "还未开始签到" },
+    { label: "加班记录", value: `${state.myOvertimeRows.length}`, hint: overtimeMinutes ? `累计 ${formatDuration(overtimeMinutes)}` : "当前暂无加班" }
+  ]);
+}
+
+function renderPublicMetrics() {
+  const total = state.publicRows.length;
+  const completed = state.publicRows.filter((row) => row.status === "已完成").length;
+  const checkedIn = state.publicRows.filter((row) => row.status === "已进站").length;
+  const overtimeMinutes = state.publicOvertimeRows.reduce(
+    (sum, row) => sum + Number(row.overtimeMinutes || 0),
+    0
+  );
+  const metrics = [
+    { label: "总值班班次", value: `${total}`, hint: "当前导入表中的正常值班" },
+    { label: "已完成签到", value: `${completed}`, hint: "已完成进站与出站" },
+    { label: "进行中", value: `${checkedIn}`, hint: "已进站，等待出站" },
+    { label: "加班记录", value: `${state.publicOvertimeRows.length}`, hint: overtimeMinutes ? `累计 ${formatDuration(overtimeMinutes)}` : "当前暂无加班" }
+  ];
+  renderMetricGrid(els.guestStats, metrics);
+  renderMetricGrid(els.publicStats, metrics);
 }
 
 function slotStatus(slot) {
@@ -181,7 +288,12 @@ function slotStatus(slot) {
 
 function renderMySlots() {
   if (!state.mySlots.length) {
-    els.mySlots.innerHTML = '<div class="card"><p class="sub">本周没有匹配到你的值班时间，请确认手机号是否和导入值班表一致。</p></div>';
+    els.mySlots.innerHTML = `
+      <div class="card empty-card">
+        <h3>本周还没有匹配到你的值班</h3>
+        <p class="sub">请确认注册手机号与导入值班表中的手机号一致，或者检查值班表中的姓名是否正确。</p>
+      </div>
+    `;
     return;
   }
 
@@ -191,72 +303,131 @@ function renderMySlots() {
       const checkin = slot.checkin || {};
       return `
         <article class="slot-card">
-          <h3>${escapeHtml(slot.date)} ${escapeHtml(slot.startTime)}-${escapeHtml(slot.endTime)}</h3>
-          <p class="slot-meta">${escapeHtml(slot.weekdayLabel || weekdayMap[slot.weekday] || "")} · ${escapeHtml(slot.name || state.user.name)}</p>
-          <p class="slot-meta">签到窗口：进站 ${escapeHtml(slot.inWindowText)} ｜ 出站 ${escapeHtml(slot.outWindowText)}</p>
-          <p class="slot-meta"><span class="status-tag ${status.cls}">${status.label}</span></p>
-          <p class="slot-meta">进站时间：${escapeHtml(formatDateTime(checkin.checkInAt))}</p>
-          <p class="slot-meta">出站时间：${escapeHtml(formatDateTime(checkin.checkOutAt))}</p>
-
-          <label>进站备注
-            <input id="inRemark_${slot.id}" placeholder="如：值班巡检、处理咨询等" />
-          </label>
-          <label>出站备注
-            <input id="outRemark_${slot.id}" placeholder="如：完成日报、汇总反馈等" />
-          </label>
+          <div class="slot-card-head">
+            <div>
+              <h3>${escapeHtml(slot.date)} ${escapeHtml(slot.startTime)} - ${escapeHtml(slot.endTime)}</h3>
+              <p class="slot-meta">${escapeHtml(slot.weekdayLabel || weekdayMap[slot.weekday] || "")} · ${escapeHtml(slot.name || state.user?.name || "")}</p>
+            </div>
+            <span class="status-tag ${status.cls}">${escapeHtml(status.label)}</span>
+          </div>
+          <p class="slot-meta">进站时间窗：${escapeHtml(slot.inWindowText || "-")}</p>
+          <p class="slot-meta">出站时间窗：${escapeHtml(slot.outWindowText || "-")}</p>
+          <p class="slot-meta">进站记录：${escapeHtml(formatDateTime(checkin.checkInAt))}</p>
+          <p class="slot-meta">出站记录：${escapeHtml(formatDateTime(checkin.checkOutAt))}</p>
+          <div class="form-grid two-col compact-form-grid">
+            <label>
+              进站备注
+              <input id="inRemark_${slot.id}" value="${escapeHtml(checkin.inRemark || "")}" placeholder="例如：值班巡检、电话接待、内容审核" />
+            </label>
+            <label>
+              出站备注
+              <input id="outRemark_${slot.id}" value="${escapeHtml(checkin.outRemark || "")}" placeholder="例如：已交接、问题已反馈、日报已提交" />
+            </label>
+          </div>
           <div class="slot-actions">
             <button class="primary" data-action="checkin-in" data-id="${slot.id}" ${checkin.checkInAt ? "disabled" : ""}>进站签到</button>
-            <button class="primary" data-action="checkin-out" data-id="${slot.id}" ${!checkin.checkInAt || checkin.checkOutAt ? "disabled" : ""}>出站签到</button>
+            <button class="secondary" data-action="checkin-out" data-id="${slot.id}" ${!checkin.checkInAt || checkin.checkOutAt ? "disabled" : ""}>出站签到</button>
           </div>
-
-          <label>加班开始时间
-            <input id="otStart_${slot.id}" type="time" value="${escapeHtml(checkin.overtimeStart || "")}" />
-          </label>
-          <label>加班时长（分钟）
-            <input id="otMinutes_${slot.id}" type="number" min="1" max="720" value="${checkin.overtimeMinutes || ""}" />
-          </label>
-          <label>加班备注
-            <input id="otRemark_${slot.id}" value="${escapeHtml(checkin.overtimeRemark || "")}" placeholder="如：处理突发问题、活动支持" />
-          </label>
-          <button class="secondary" data-action="save-overtime" data-id="${slot.id}">保存加班信息</button>
         </article>
       `;
     })
     .join("");
 }
 
-function renderPublicTableIn(target) {
-  if (!target) return;
-  if (!state.publicRows.length) {
-    target.innerHTML = '<tr><td colspan="9">暂无公共数据</td></tr>';
+function renderMyOvertime() {
+  if (!state.myOvertimeRows.length) {
+    els.myOvertimeBody.innerHTML = '<tr><td colspan="5">暂无加班记录</td></tr>';
     return;
   }
-  target.innerHTML = state.publicRows
-    .map((row) => {
-      const overtimeText =
-        row.overtimeMinutes > 0
-          ? `${escapeHtml(row.overtimeStart || "-")} / ${row.overtimeMinutes} 分钟`
-          : "-";
-      return `
+
+  els.myOvertimeBody.innerHTML = state.myOvertimeRows
+    .map(
+      (row) => `
         <tr>
-          <td>${escapeHtml(row.date)} ${escapeHtml(row.weekday)}</td>
-          <td>${escapeHtml(row.startTime)}-${escapeHtml(row.endTime)}</td>
-          <td>${escapeHtml(row.name)}</td>
-          <td>${escapeHtml(row.phone)}</td>
-          <td>${escapeHtml(row.department)}</td>
-          <td>${escapeHtml(row.status)}</td>
-          <td>${escapeHtml(formatDateTime(row.checkInAt))}</td>
-          <td>${escapeHtml(formatDateTime(row.checkOutAt))}</td>
-          <td>${overtimeText}</td>
+          <td>${escapeHtml(row.date)}</td>
+          <td>${escapeHtml(row.startTime)}</td>
+          <td>${escapeHtml(row.endTime)}</td>
+          <td>${escapeHtml(formatDuration(row.overtimeMinutes))}</td>
+          <td>${escapeHtml(row.remark || "-")}</td>
         </tr>
-      `;
-    })
+      `
+    )
     .join("");
 }
 
-function renderPublicTable() {
-  renderPublicTableIn(els.publicTableBody);
-  renderPublicTableIn(els.publicGuestTableBody);
+function buildRemarkText(row) {
+  const parts = [];
+  if (row.inRemark) parts.push(`进：${row.inRemark}`);
+  if (row.outRemark) parts.push(`出：${row.outRemark}`);
+  return parts.length ? parts.join(" / ") : "-";
+}
+
+function renderDutyTable(target) {
+  if (!target) return;
+  if (!state.publicRows.length) {
+    target.innerHTML = '<tr><td colspan="9">暂无正常值班数据</td></tr>';
+    return;
+  }
+
+  target.innerHTML = state.publicRows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.date)} ${escapeHtml(row.weekday)}</td>
+          <td>${escapeHtml(row.startTime)} - ${escapeHtml(row.endTime)}</td>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${escapeHtml(row.phone)}</td>
+          <td>${escapeHtml(row.department || "-")}</td>
+          <td>${escapeHtml(row.status)}</td>
+          <td>${escapeHtml(formatDateTime(row.checkInAt))}</td>
+          <td>${escapeHtml(formatDateTime(row.checkOutAt))}</td>
+          <td>${escapeHtml(buildRemarkText(row))}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function renderOvertimeTable(target) {
+  if (!target) return;
+  if (!state.publicOvertimeRows.length) {
+    target.innerHTML = '<tr><td colspan="8">暂无加班数据</td></tr>';
+    return;
+  }
+
+  target.innerHTML = state.publicOvertimeRows
+    .map(
+      (row) => `
+        <tr>
+          <td>${escapeHtml(row.date)}</td>
+          <td>${escapeHtml(row.startTime)}</td>
+          <td>${escapeHtml(row.endTime)}</td>
+          <td>${escapeHtml(formatDuration(row.overtimeMinutes))}</td>
+          <td>${escapeHtml(row.name)}</td>
+          <td>${escapeHtml(row.phone)}</td>
+          <td>${escapeHtml(row.department || "-")}</td>
+          <td>${escapeHtml(row.remark || "-")}</td>
+        </tr>
+      `
+    )
+    .join("");
+}
+
+function renderPublicTables() {
+  renderDutyTable(els.publicTableBody);
+  renderDutyTable(els.publicGuestTableBody);
+  renderOvertimeTable(els.publicOvertimeBody);
+  renderOvertimeTable(els.publicGuestOvertimeBody);
+}
+
+function renderAll() {
+  renderUser();
+  renderScheduleInfo();
+  renderMineMetrics();
+  renderPublicMetrics();
+  renderMySlots();
+  renderMyOvertime();
+  renderPublicTables();
 }
 
 async function fetchPublicOverview() {
@@ -270,51 +441,57 @@ async function fetchPublicOverview() {
 
 function renderImportRows() {
   if (!state.importDraft.length) {
-    els.importRowsBody.innerHTML = '<tr><td colspan="7">暂无识别结果，请先上传截图识别。</td></tr>';
+    els.importRowsBody.innerHTML = '<tr><td colspan="7">暂无识别结果，请先上传值班表文件。</td></tr>';
     return;
   }
 
   els.importRowsBody.innerHTML = state.importDraft
     .map(
       (row, idx) => `
-      <tr>
-        <td>
-          <select class="import-weekday-select" data-field="weekday" data-idx="${idx}">
-            ${[1, 2, 3, 4, 5, 6, 7]
-              .map((n) => `<option value="${n}" ${Number(row.weekday) === n ? "selected" : ""}>${importWeekdayMap[n]}</option>`)
-              .join("")}
-          </select>
-        </td>
-        <td><input data-field="date" data-idx="${idx}" value="${escapeHtml(row.date || "")}" /></td>
-        <td><input data-field="startTime" data-idx="${idx}" value="${escapeHtml(row.startTime || "")}" /></td>
-        <td><input data-field="endTime" data-idx="${idx}" value="${escapeHtml(row.endTime || "")}" /></td>
-        <td><input data-field="name" data-idx="${idx}" value="${escapeHtml(row.name || "")}" /></td>
-        <td><input data-field="phone" data-idx="${idx}" value="${escapeHtml(row.phone || "")}" /></td>
-        <td><input data-field="department" data-idx="${idx}" value="${escapeHtml(row.department || "")}" placeholder="可选" /></td>
-      </tr>
-    `
+        <tr>
+          <td>
+            <select class="import-weekday-select" data-field="weekday" data-idx="${idx}">
+              ${[1, 2, 3, 4, 5, 6, 7]
+                .map((n) => `<option value="${n}" ${Number(row.weekday) === n ? "selected" : ""}>${importWeekdayMap[n]}</option>`)
+                .join("")}
+            </select>
+          </td>
+          <td><input data-field="date" data-idx="${idx}" value="${escapeHtml(row.date || "")}" /></td>
+          <td><input data-field="startTime" data-idx="${idx}" value="${escapeHtml(row.startTime || "")}" /></td>
+          <td><input data-field="endTime" data-idx="${idx}" value="${escapeHtml(row.endTime || "")}" /></td>
+          <td><input data-field="name" data-idx="${idx}" value="${escapeHtml(row.name || "")}" /></td>
+          <td><input data-field="phone" data-idx="${idx}" value="${escapeHtml(row.phone || "")}" /></td>
+          <td><input data-field="department" data-idx="${idx}" value="${escapeHtml(row.department || "")}" placeholder="可留空" /></td>
+        </tr>
+      `
     )
     .join("");
 }
 
 async function refreshAll() {
-  const [scheduleRes, myRes, publicRes] = await Promise.all([
+  const [scheduleRes, myRes, myOvertimeRes, publicRes] = await Promise.all([
     api("/api/schedule/current"),
     api("/api/my/slots"),
+    api("/api/my/overtime"),
     fetchPublicOverview()
   ]);
-  state.currentSchedule = scheduleRes.currentSchedule;
+
+  state.currentSchedule = scheduleRes.currentSchedule || publicRes.currentSchedule || null;
   state.mySlots = myRes.slots || [];
+  state.myOvertimeRows = myOvertimeRes.rows || [];
   state.publicRows = publicRes.rows || [];
-  renderScheduleTitle();
-  renderMySlots();
-  renderPublicTable();
+  state.publicOvertimeRows = publicRes.overtimeRows || [];
+  renderAll();
 }
 
 async function refreshPublicOnly() {
   const publicRes = await fetchPublicOverview();
+  state.currentSchedule = publicRes.currentSchedule || null;
   state.publicRows = publicRes.rows || [];
-  renderPublicTable();
+  state.publicOvertimeRows = publicRes.overtimeRows || [];
+  renderScheduleInfo();
+  renderPublicMetrics();
+  renderPublicTables();
 }
 
 async function tryRestore() {
@@ -324,12 +501,13 @@ async function tryRestore() {
     await refreshPublicOnly().catch(() => {});
     return;
   }
+
   try {
     const me = await api("/api/me");
     state.user = me.user;
     localStorage.setItem("user", JSON.stringify(me.user));
-    renderUser();
     setAuthed(true);
+    renderUser();
     await refreshAll();
   } catch (_error) {
     clearSession();
@@ -342,10 +520,11 @@ async function handleRegister(event) {
   const body = {
     name: document.getElementById("regName").value.trim(),
     phone: document.getElementById("regPhone").value.trim(),
-    department: document.getElementById("regDepartment").value,
+    department: document.getElementById("regDepartment").value.trim(),
     password: document.getElementById("regPassword").value,
     confirmPassword: document.getElementById("regConfirmPassword").value
   };
+
   try {
     const data = await api("/api/auth/register", { method: "POST", body });
     saveSession(data.token, data.user);
@@ -362,6 +541,7 @@ async function handleLogin(event) {
     phone: document.getElementById("loginPhone").value.trim(),
     password: document.getElementById("loginPassword").value
   };
+
   try {
     const data = await api("/api/auth/login", { method: "POST", body });
     saveSession(data.token, data.user);
@@ -376,7 +556,7 @@ function readDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("读取图片失败"));
+    reader.onerror = () => reject(new Error("读取文件失败"));
     reader.readAsDataURL(file);
   });
 }
@@ -402,7 +582,7 @@ async function handleRecognize() {
   const weekStartDate = els.importWeekStart.value;
   const title = els.importTitle.value.trim() || "值班表导入";
   if (!file) {
-    toast("请先选择值班表截图", true);
+    toast("请先选择值班表文件", true);
     return;
   }
   if (!weekStartDate) {
@@ -412,11 +592,10 @@ async function handleRecognize() {
 
   try {
     els.recognizeBtn.disabled = true;
-    els.recognizeResult.textContent = "识别中，请稍候（图片越清晰越快）...";
     els.recognizeResult.textContent =
       file.type === "application/pdf"
-        ? "\u6b63\u5728\u89e3\u6790 PDF\uff0c\u8bf7\u7a0d\u5019..."
-        : els.recognizeResult.textContent;
+        ? "正在解析 PDF，请稍候..."
+        : "正在识别图片，请稍候...";
     const fileDataUrl = await readDataUrl(file);
     const data = await api("/api/schedule/recognize", {
       method: "POST",
@@ -425,7 +604,7 @@ async function handleRecognize() {
     state.importDraft = data.slots || [];
     renderImportRows();
     els.importEditorCard.classList.remove("hidden");
-    els.recognizeResult.textContent = data.message || "";
+    els.recognizeResult.textContent = data.message || "识别完成";
     toast("识别完成，请先核对再导入");
   } catch (error) {
     els.recognizeResult.textContent = "";
@@ -496,39 +675,71 @@ async function doCheckIn(slotId, type) {
   }
 }
 
-async function saveOvertime(slotId) {
-  const overtimeStart = document.getElementById(`otStart_${slotId}`)?.value || "";
-  const overtimeMinutes = Number(document.getElementById(`otMinutes_${slotId}`)?.value || 0);
-  const overtimeRemark = document.getElementById(`otRemark_${slotId}`)?.value.trim() || "";
+function resetOvertimeForm() {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  els.overtimeDate.value = `${y}-${m}-${d}`;
+  els.overtimeStart.value = "18:00";
+  els.overtimeEnd.value = "19:00";
+  els.overtimeRemark.value = "";
+}
+
+async function saveOvertime() {
+  const body = {
+    date: els.overtimeDate.value,
+    startTime: els.overtimeStart.value,
+    endTime: els.overtimeEnd.value,
+    remark: els.overtimeRemark.value.trim()
+  };
+
   try {
-    await api("/api/checkins/overtime", {
+    els.saveOvertimeBtn.disabled = true;
+    const data = await api("/api/overtime", {
       method: "POST",
-      body: { slotId, overtimeStart, overtimeMinutes, overtimeRemark }
+      body
     });
-    toast("加班信息已保存");
+    toast(data.message || "加班记录已保存");
+    resetOvertimeForm();
     await refreshAll();
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    els.saveOvertimeBtn.disabled = false;
+  }
+}
+
+async function downloadCsv(endpoint, filename) {
+  const resp = await fetch(endpoint);
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+    throw new Error(data.message || "导出失败");
+  }
+  const blob = await resp.blob();
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportDutyCsv() {
+  try {
+    await downloadCsv("/api/public/export-duty.csv", "正常值班统计.csv");
+    toast("正常值班统计已导出");
   } catch (error) {
     toast(error.message, true);
   }
 }
 
-async function exportPublicCsv() {
+async function exportOvertimeCsv() {
   try {
-    const resp = await fetch("/api/public/export.csv");
-    if (!resp.ok) {
-      const data = await resp.json().catch(() => ({}));
-      throw new Error(data.message || "导出失败");
-    }
-    const blob = await resp.blob();
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "公共签到统计.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-    toast("导出成功");
+    await downloadCsv("/api/public/export-overtime.csv", "加班统计.csv");
+    toast("加班统计已导出");
   } catch (error) {
     toast(error.message, true);
   }
@@ -539,6 +750,7 @@ function bindEvents() {
   els.switchLogin.addEventListener("click", () => setAuthMode("login"));
   els.registerForm.addEventListener("submit", handleRegister);
   els.loginForm.addEventListener("submit", handleLogin);
+
   els.logoutBtn.addEventListener("click", () => {
     clearSession();
     toast("已退出登录");
@@ -549,22 +761,34 @@ function bindEvents() {
   els.tabPublic.addEventListener("click", () => setTab("public"));
   els.tabImport.addEventListener("click", () => setTab("import"));
 
+  els.themeToolbar.addEventListener("click", (event) => {
+    const target = event.target.closest(".theme-btn");
+    if (!(target instanceof HTMLButtonElement)) return;
+    applyTheme(target.dataset.themeName || "sunrise");
+  });
+
   els.recognizeBtn.addEventListener("click", handleRecognize);
   els.confirmImportBtn.addEventListener("click", handleConfirmImport);
   els.addImportRowBtn.addEventListener("click", addImportRow);
 
-  els.refreshPublicBtn.addEventListener("click", async () => {
+  els.refreshMineBtn.addEventListener("click", async () => {
     try {
-      if (state.user) {
-        await refreshAll();
-      } else {
-        await refreshPublicOnly();
-      }
-      toast("数据已刷新");
+      await refreshAll();
+      toast("我的数据已刷新");
     } catch (error) {
       toast(error.message, true);
     }
   });
+
+  els.refreshPublicBtn.addEventListener("click", async () => {
+    try {
+      await refreshAll();
+      toast("公共看板已刷新");
+    } catch (error) {
+      toast(error.message, true);
+    }
+  });
+
   els.refreshPublicGuestBtn.addEventListener("click", async () => {
     try {
       await refreshPublicOnly();
@@ -573,8 +797,13 @@ function bindEvents() {
       toast(error.message, true);
     }
   });
-  els.exportPublicBtn.addEventListener("click", exportPublicCsv);
-  els.exportPublicGuestBtn.addEventListener("click", exportPublicCsv);
+
+  els.exportPublicDutyBtn.addEventListener("click", exportDutyCsv);
+  els.exportPublicOvertimeBtn.addEventListener("click", exportOvertimeCsv);
+  els.exportGuestDutyBtn.addEventListener("click", exportDutyCsv);
+  els.exportGuestOvertimeBtn.addEventListener("click", exportOvertimeCsv);
+  els.saveOvertimeBtn.addEventListener("click", saveOvertime);
+  els.resetOvertimeBtn.addEventListener("click", resetOvertimeForm);
 
   els.mySlots.addEventListener("click", (event) => {
     const target = event.target;
@@ -586,15 +815,13 @@ function bindEvents() {
       doCheckIn(slotId, "in");
     } else if (action === "checkin-out") {
       doCheckIn(slotId, "out");
-    } else if (action === "save-overtime") {
-      saveOvertime(slotId);
     }
   });
 }
 
 function setDefaultImportDate() {
   const now = new Date();
-  const day = now.getDay(); // 0 Sun, 1 Mon ...
+  const day = now.getDay();
   const diffToMonday = day === 0 ? -6 : 1 - day;
   const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() + diffToMonday);
   const y = monday.getFullYear();
@@ -605,11 +832,12 @@ function setDefaultImportDate() {
 
 function bootstrap() {
   bindEvents();
+  applyTheme(state.theme);
   setAuthMode("register");
   setTab("mine");
   setDefaultImportDate();
+  resetOvertimeForm();
   tryRestore();
-  refreshPublicOnly().catch(() => {});
 }
 
 bootstrap();
