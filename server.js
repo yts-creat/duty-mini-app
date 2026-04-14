@@ -11,6 +11,10 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const IS_PROD = process.env.NODE_ENV === "production";
 const JWT_SECRET = process.env.JWT_SECRET || "replace_this_in_production";
+const ADMIN_ACCOUNT = process.env.ADMIN_ACCOUNT || "\u7ba1\u7406\u5458";
+const ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
+const ADMIN_DEPARTMENT = "\u7ba1\u7406\u5458";
+const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || "Admin12345";
 let DB_PATH =
   process.env.DB_PATH ||
   (IS_PROD ? "/tmp/db.json" : path.join(__dirname, "data", "db.json"));
@@ -94,13 +98,17 @@ function ensureDbFile() {
 function readDb() {
   const raw = fs.readFileSync(DB_PATH, "utf8").replace(/^\uFEFF/, "");
   const db = JSON.parse(raw);
-  return {
+  const normalized = {
     users: Array.isArray(db.users) ? db.users : [],
     dutySlots: Array.isArray(db.dutySlots) ? db.dutySlots : Array.isArray(db.schedules) ? db.schedules : [],
     checkins: Array.isArray(db.checkins) ? db.checkins : [],
     overtimeEntries: Array.isArray(db.overtimeEntries) ? db.overtimeEntries : [],
     currentSchedule: db.currentSchedule || null
   };
+  if (ensureBuiltinAdmin(normalized)) {
+    writeDb(normalized);
+  }
+  return normalized;
 }
 
 function writeDb(db) {
@@ -173,12 +181,68 @@ function isValidDate(value) {
   );
 }
 
+function normalizeUserRecord(user) {
+  const createdAt = user.createdAt || new Date().toISOString();
+  const phone = normalizePhone(user.phone);
+  const role = user.role === "admin" ? "admin" : "member";
+  const loginAccount = role === "admin"
+    ? ADMIN_ACCOUNT
+    : (String(user.loginAccount || phone).trim() || phone);
+
+  return {
+    ...user,
+    id: user.id || crypto.randomUUID(),
+    phone,
+    name: role === "admin" ? ADMIN_NAME : String(user.name || "").trim(),
+    department: role === "admin" ? ADMIN_DEPARTMENT : String(user.department || "").trim(),
+    role,
+    loginAccount,
+    avatarDataUrl: typeof user.avatarDataUrl === "string" ? user.avatarDataUrl : "",
+    createdAt,
+    updatedAt: user.updatedAt || createdAt
+  };
+}
+
+function ensureBuiltinAdmin(db) {
+  let changed = false;
+  const normalizedUsers = (Array.isArray(db.users) ? db.users : []).map((user) => {
+    const normalized = normalizeUserRecord(user);
+    const keys = ["phone", "name", "department", "role", "loginAccount", "avatarDataUrl", "updatedAt"];
+    if (keys.some((key) => normalized[key] !== user[key])) {
+      changed = true;
+    }
+    return normalized;
+  });
+
+  if (!normalizedUsers.some((user) => user.role === "admin")) {
+    normalizedUsers.unshift({
+      id: crypto.randomUUID(),
+      phone: "",
+      passwordHash: bcrypt.hashSync(ADMIN_DEFAULT_PASSWORD, 10),
+      name: ADMIN_NAME,
+      department: ADMIN_DEPARTMENT,
+      role: "admin",
+      loginAccount: ADMIN_ACCOUNT,
+      avatarDataUrl: "",
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    });
+    changed = true;
+  }
+
+  db.users = normalizedUsers;
+  return changed;
+}
+
 function toPublicUser(user) {
   return {
     id: user.id,
     phone: user.phone,
+    loginAccount: user.loginAccount || user.phone,
     name: user.name,
     department: user.department,
+    role: user.role === "admin" ? "admin" : "member",
+    avatarDataUrl: user.avatarDataUrl || "",
     createdAt: user.createdAt
   };
 }
@@ -211,7 +275,9 @@ function createToken(user) {
       uid: user.id,
       phone: user.phone,
       name: user.name,
-      department: user.department
+      department: user.department,
+      role: user.role,
+      loginAccount: user.loginAccount || user.phone
     },
     JWT_SECRET,
     { expiresIn: "7d" }
@@ -237,6 +303,23 @@ function authMiddleware(req, res, next) {
   } catch (_error) {
     return res.status(401).json({ message: "登录令牌无效，请重新登录" });
   }
+}
+
+function adminOnlyMiddleware(req, res, next) {
+  if (req.user?.role !== "admin") {
+    return res.status(403).json({ message: "仅管理员可以导入和识别值班表" });
+  }
+  next();
+}
+
+function findUserByAccount(db, rawAccount) {
+  const account = String(rawAccount || "").trim();
+  if (!account) return null;
+  const phone = normalizePhone(account);
+  return (
+    db.users.find((user) => user.loginAccount === account) ||
+    (isValidPhone(phone) ? db.users.find((user) => user.phone === phone) : null)
+  );
 }
 
 function normalizeOcrText(value) {
@@ -920,6 +1003,7 @@ function buildOvertimeRows(db, phoneFilter = "") {
     .sort((a, b) => `${b.date} ${b.startTime}`.localeCompare(`${a.date} ${a.startTime}`))
     .map((item) => ({
       id: item.id,
+      userId: item.userId || "",
       date: item.date,
       startTime: item.startTime,
       endTime: item.endTime,
@@ -1106,6 +1190,9 @@ app.post("/api/auth/register", async (req, res) => {
     passwordHash,
     name,
     department,
+    role: "member",
+    loginAccount: phone,
+    avatarDataUrl: "",
     createdAt: new Date().toISOString()
   };
   db.users.push(user);
@@ -1120,24 +1207,24 @@ app.post("/api/auth/register", async (req, res) => {
 });
 
 app.post("/api/auth/login", async (req, res) => {
-  const phone = normalizePhone(req.body.phone);
+  const account = String(req.body.account || req.body.phone || "").trim();
   const password = String(req.body.password || "");
 
-  if (!isValidPhone(phone)) {
-    return res.status(400).json({ message: "手机号格式不正确" });
+  if (!account) {
+    return res.status(400).json({ message: "请输入账号" });
   }
   if (!password) {
     return res.status(400).json({ message: "请输入密码" });
   }
 
   const db = readDb();
-  const user = db.users.find((u) => u.phone === phone);
+  const user = findUserByAccount(db, account);
   if (!user) {
-    return res.status(401).json({ message: "手机号或密码错误" });
+    return res.status(401).json({ message: "账号或密码错误" });
   }
   const ok = await bcrypt.compare(password, user.passwordHash);
   if (!ok) {
-    return res.status(401).json({ message: "手机号或密码错误" });
+    return res.status(401).json({ message: "账号或密码错误" });
   }
 
   const token = createToken(user);
@@ -1152,6 +1239,85 @@ app.get("/api/me", authMiddleware, (req, res) => {
   res.json({ user: toPublicUser(req.user) });
 });
 
+app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
+  const currentPassword = String(req.body.currentPassword || "");
+  const newPassword = String(req.body.newPassword || "");
+  const confirmPassword = String(req.body.confirmPassword || "");
+
+  if (!currentPassword) {
+    return res.status(400).json({ message: "请输入当前密码" });
+  }
+  if (!isValidPassword(newPassword)) {
+    return res.status(400).json({ message: "新密码需为6-32位且包含字母和数字" });
+  }
+  if (newPassword !== confirmPassword) {
+    return res.status(400).json({ message: "两次输入的新密码不一致" });
+  }
+
+  const db = readDb();
+  const user = db.users.find((item) => item.id === req.user.id);
+  if (!user) {
+    return res.status(404).json({ message: "用户不存在，请重新登录" });
+  }
+
+  const ok = await bcrypt.compare(currentPassword, user.passwordHash);
+  if (!ok) {
+    return res.status(400).json({ message: "当前密码不正确" });
+  }
+
+  user.passwordHash = await bcrypt.hash(newPassword, 10);
+  user.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  return res.json({ message: "密码修改成功", user: toPublicUser(user) });
+});
+
+app.post("/api/me/avatar", authMiddleware, (req, res) => {
+  const avatarDataUrl = String(req.body.avatarDataUrl || "").trim();
+  if (!avatarDataUrl) {
+    return res.status(400).json({ message: "请上传头像图片" });
+  }
+  if (!/^data:image\/(png|jpe?g|webp);base64,/.test(avatarDataUrl)) {
+    return res.status(400).json({ message: "头像格式仅支持 PNG、JPG、WEBP" });
+  }
+
+  let fileBuffer = null;
+  try {
+    fileBuffer = Buffer.from(avatarDataUrl.split(",")[1], "base64");
+  } catch (_error) {
+    return res.status(400).json({ message: "头像编码格式不正确" });
+  }
+  if (!fileBuffer?.length || fileBuffer.length > 350 * 1024) {
+    return res.status(400).json({ message: "头像请控制在 350KB 以内" });
+  }
+
+  const db = readDb();
+  const user = db.users.find((item) => item.id === req.user.id);
+  if (!user) {
+    return res.status(404).json({ message: "用户不存在，请重新登录" });
+  }
+
+  user.avatarDataUrl = avatarDataUrl;
+  user.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  return res.json({ message: "头像更新成功", user: toPublicUser(user) });
+});
+
+app.delete("/api/me/avatar", authMiddleware, (req, res) => {
+  const db = readDb();
+  const user = db.users.find((item) => item.id === req.user.id);
+  if (!user) {
+    return res.status(404).json({ message: "用户不存在，请重新登录" });
+  }
+
+  user.avatarDataUrl = "";
+  user.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  return res.json({ message: "头像已移除", user: toPublicUser(user) });
+});
+
 app.get("/api/schedule/current", authMiddleware, (_req, res) => {
   const db = readDb();
   res.json({
@@ -1161,7 +1327,7 @@ app.get("/api/schedule/current", authMiddleware, (_req, res) => {
   });
 });
 
-app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
+app.post("/api/schedule/recognize", authMiddleware, adminOnlyMiddleware, async (req, res) => {
   const title = String(req.body.title || "值班表导入").trim();
   const weekStartDate = String(req.body.weekStartDate || "").trim();
   const fileDataUrl = String(req.body.fileDataUrl || req.body.imageDataUrl || "");
@@ -1219,7 +1385,7 @@ app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
   }
 });
 
-app.post("/api/schedule/import", authMiddleware, (req, res) => {
+app.post("/api/schedule/import", authMiddleware, adminOnlyMiddleware, (req, res) => {
   const title = String(req.body.title || "值班表导入").trim();
   const weekStartDate = String(req.body.weekStartDate || "").trim();
   const incomingSlots = Array.isArray(req.body.slots) ? req.body.slots : [];
@@ -1273,7 +1439,7 @@ app.post("/api/schedule/import", authMiddleware, (req, res) => {
     weekStartDate,
     weekEndDate: addDays(weekStartDate, 6),
     importedAt: new Date().toISOString(),
-    importedBy: req.user.phone
+    importedBy: req.user.loginAccount || req.user.phone || req.user.name
   };
   db.dutySlots = normalizedSlots;
   db.checkins = [];
@@ -1316,7 +1482,9 @@ app.get("/api/my/overtime", authMiddleware, (req, res) => {
   const db = readDb();
   return res.json({
     currentSchedule: db.currentSchedule,
-    rows: buildOvertimeRows(db, req.user.phone)
+    rows: buildOvertimeRows(db).filter((row) =>
+      row.userId ? row.userId === req.user.id : row.phone === req.user.phone
+    )
   });
 });
 
@@ -1588,6 +1756,7 @@ app.get("*", (_req, res) => {
 });
 
 ensureDbFile();
+readDb();
 app.listen(PORT, () => {
   console.log(`Server running at http://localhost:${PORT}`);
   console.log(`DB_PATH=${DB_PATH}`);

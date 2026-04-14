@@ -43,9 +43,24 @@ const els = {
   registerForm: document.getElementById("registerForm"),
   loginForm: document.getElementById("loginForm"),
   logoutBtn: document.getElementById("logoutBtn"),
+  userAvatar: document.getElementById("userAvatar"),
   userName: document.getElementById("userName"),
-  userPhone: document.getElementById("userPhone"),
+  userRole: document.getElementById("userRole"),
+  userAccountLabel: document.getElementById("userAccountLabel"),
   userDepartment: document.getElementById("userDepartment"),
+  profileAvatar: document.getElementById("profileAvatar"),
+  profileName: document.getElementById("profileName"),
+  profileAccount: document.getElementById("profileAccount"),
+  profileDepartment: document.getElementById("profileDepartment"),
+  profileRoleBadge: document.getElementById("profileRoleBadge"),
+  importPermissionText: document.getElementById("importPermissionText"),
+  avatarFile: document.getElementById("avatarFile"),
+  saveAvatarBtn: document.getElementById("saveAvatarBtn"),
+  removeAvatarBtn: document.getElementById("removeAvatarBtn"),
+  currentPassword: document.getElementById("currentPassword"),
+  newPassword: document.getElementById("newPassword"),
+  confirmNewPassword: document.getElementById("confirmNewPassword"),
+  changePasswordBtn: document.getElementById("changePasswordBtn"),
   tabMine: document.getElementById("tabMine"),
   tabPublic: document.getElementById("tabPublic"),
   tabImport: document.getElementById("tabImport"),
@@ -86,9 +101,15 @@ const els = {
   importRowsBody: document.getElementById("importRowsBody"),
   addImportRowBtn: document.getElementById("addImportRowBtn"),
   confirmImportBtn: document.getElementById("confirmImportBtn"),
+  loginAccount: document.getElementById("loginAccount"),
+  loginPassword: document.getElementById("loginPassword"),
   themeToolbar: document.getElementById("themeToolbar"),
   themeButtons: Array.from(document.querySelectorAll(".theme-btn"))
 };
+
+function isAdmin() {
+  return state.user?.role === "admin";
+}
 
 function toast(message, isError = false) {
   els.toast.textContent = message;
@@ -126,6 +147,15 @@ function formatDuration(minutes) {
   return `${hours} 小时 ${rest} 分钟`;
 }
 
+function getAccountText(user = state.user) {
+  if (!user) return "-";
+  return user.role === "admin" ? user.loginAccount || "管理员" : user.phone || user.loginAccount || "-";
+}
+
+function getRoleText(user = state.user) {
+  return user?.role === "admin" ? "管理员" : "普通成员";
+}
+
 function getScheduleText() {
   if (!state.currentSchedule) {
     return "暂无值班表，请先导入本周排班。";
@@ -149,6 +179,16 @@ function renderMetricGrid(target, metrics) {
   target.innerHTML = metrics.map((item) => metricMarkup(item.label, item.value, item.hint)).join("");
 }
 
+function renderAvatar(target, user) {
+  if (!target) return;
+  const fallback = escapeHtml((user?.name || user?.loginAccount || "创").slice(0, 1));
+  if (user?.avatarDataUrl) {
+    target.innerHTML = `<img src="${user.avatarDataUrl}" alt="头像" class="avatar-image" />`;
+  } else {
+    target.innerHTML = `<span class="avatar-fallback">${fallback}</span>`;
+  }
+}
+
 function setAuthMode(mode) {
   state.authMode = mode;
   const isRegister = mode === "register";
@@ -159,13 +199,14 @@ function setAuthMode(mode) {
 }
 
 function setTab(tab) {
-  state.activeTab = tab;
-  els.tabMine.classList.toggle("active", tab === "mine");
-  els.tabPublic.classList.toggle("active", tab === "public");
-  els.tabImport.classList.toggle("active", tab === "import");
-  els.panelMine.classList.toggle("hidden", tab !== "mine");
-  els.panelPublic.classList.toggle("hidden", tab !== "public");
-  els.panelImport.classList.toggle("hidden", tab !== "import");
+  const nextTab = tab === "import" && !isAdmin() ? "mine" : tab;
+  state.activeTab = nextTab;
+  els.tabMine.classList.toggle("active", nextTab === "mine");
+  els.tabPublic.classList.toggle("active", nextTab === "public");
+  els.tabImport.classList.toggle("active", nextTab === "import");
+  els.panelMine.classList.toggle("hidden", nextTab !== "mine");
+  els.panelPublic.classList.toggle("hidden", nextTab !== "public");
+  els.panelImport.classList.toggle("hidden", nextTab !== "import");
 }
 
 function setAuthed(authed) {
@@ -183,14 +224,18 @@ function applyTheme(themeName) {
   }
 }
 
+function persistUser(user) {
+  state.user = user;
+  localStorage.setItem("user", JSON.stringify(user));
+  renderUser();
+}
+
 function saveSession(token, user) {
   state.token = token;
-  state.user = user;
   localStorage.setItem("token", token);
-  localStorage.setItem("user", JSON.stringify(user));
+  persistUser(user);
   setAuthed(true);
   setTab("mine");
-  renderUser();
 }
 
 function clearSession() {
@@ -229,10 +274,26 @@ async function api(path, options = {}) {
 }
 
 function renderUser() {
-  if (!state.user) return;
-  els.userName.textContent = state.user.name || "-";
-  els.userPhone.textContent = state.user.phone || "-";
-  els.userDepartment.textContent = state.user.department || "-";
+  const user = state.user;
+  if (!user) return;
+
+  renderAvatar(els.userAvatar, user);
+  renderAvatar(els.profileAvatar, user);
+  els.userName.textContent = user.name || "-";
+  els.userRole.textContent = getRoleText(user);
+  els.userAccountLabel.textContent = user.role === "admin" ? `账号：${getAccountText(user)}` : `手机号：${getAccountText(user)}`;
+  els.userDepartment.textContent = user.department || "-";
+
+  els.profileName.textContent = user.name || "-";
+  els.profileAccount.textContent = getAccountText(user);
+  els.profileDepartment.textContent = user.department || "-";
+  els.profileRoleBadge.textContent = getRoleText(user);
+  els.importPermissionText.textContent = isAdmin() ? "可识别与导入值班表" : "仅管理员可导入";
+
+  els.tabImport.classList.toggle("hidden", !isAdmin());
+  if (!isAdmin() && state.activeTab === "import") {
+    setTab("mine");
+  }
 }
 
 function renderScheduleInfo() {
@@ -255,7 +316,7 @@ function renderMineMetrics() {
   );
 
   renderMetricGrid(els.mineStats, [
-    { label: "本周班次", value: `${total}`, hint: "与你手机号或姓名匹配" },
+    { label: "本周班次", value: `${total}`, hint: isAdmin() ? "管理员默认不参与自动排班" : "与你手机号或姓名匹配" },
     { label: "已完成", value: `${completed}`, hint: "已进站且已出站" },
     { label: "待完成", value: `${pending}`, hint: checkedIn ? `其中 ${checkedIn} 个已进站` : "还未开始签到" },
     { label: "加班记录", value: `${state.myOvertimeRows.length}`, hint: overtimeMinutes ? `累计 ${formatDuration(overtimeMinutes)}` : "当前暂无加班" }
@@ -290,8 +351,8 @@ function renderMySlots() {
   if (!state.mySlots.length) {
     els.mySlots.innerHTML = `
       <div class="card empty-card">
-        <h3>本周还没有匹配到你的值班</h3>
-        <p class="sub">请确认注册手机号与导入值班表中的手机号一致，或者检查值班表中的姓名是否正确。</p>
+        <h3>${isAdmin() ? "管理员账号默认不参与自动值班" : "本周还没有匹配到你的值班"}</h3>
+        <p class="sub">${isAdmin() ? "你可以继续使用公共看板、导入值班表、修改头像和密码功能。" : "请确认注册手机号与导入值班表中的手机号一致，或者检查值班表中的姓名是否正确。"}</p>
       </div>
     `;
     return;
@@ -421,12 +482,14 @@ function renderPublicTables() {
 }
 
 function renderAll() {
-  renderUser();
+  if (state.user) {
+    renderUser();
+    renderMineMetrics();
+    renderMySlots();
+    renderMyOvertime();
+  }
   renderScheduleInfo();
-  renderMineMetrics();
   renderPublicMetrics();
-  renderMySlots();
-  renderMyOvertime();
   renderPublicTables();
 }
 
@@ -504,10 +567,8 @@ async function tryRestore() {
 
   try {
     const me = await api("/api/me");
-    state.user = me.user;
-    localStorage.setItem("user", JSON.stringify(me.user));
+    persistUser(me.user);
     setAuthed(true);
-    renderUser();
     await refreshAll();
   } catch (_error) {
     clearSession();
@@ -538,8 +599,8 @@ async function handleRegister(event) {
 async function handleLogin(event) {
   event.preventDefault();
   const body = {
-    phone: document.getElementById("loginPhone").value.trim(),
-    password: document.getElementById("loginPassword").value
+    account: els.loginAccount.value.trim(),
+    password: els.loginPassword.value
   };
 
   try {
@@ -561,6 +622,46 @@ function readDataUrl(file) {
   });
 }
 
+function loadImage(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("读取图片失败"));
+    img.src = dataUrl;
+  });
+}
+
+async function buildAvatarDataUrl(file) {
+  if (!file) {
+    throw new Error("请先选择头像图片");
+  }
+  if (!/^image\//.test(file.type)) {
+    throw new Error("头像请选择图片文件");
+  }
+  if (file.size > 4 * 1024 * 1024) {
+    throw new Error("头像原图请控制在 4MB 以内");
+  }
+
+  const rawDataUrl = await readDataUrl(file);
+  const image = await loadImage(rawDataUrl);
+  const size = 220;
+  const side = Math.min(image.width, image.height);
+  const sx = (image.width - side) / 2;
+  const sy = (image.height - side) / 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = size;
+  canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  ctx.drawImage(image, sx, sy, side, side, 0, 0, size, size);
+  return canvas.toDataURL("image/jpeg", 0.86);
+}
+
+function clearPasswordForm() {
+  els.currentPassword.value = "";
+  els.newPassword.value = "";
+  els.confirmNewPassword.value = "";
+}
+
 function collectImportRowsFromDom() {
   const rows = [];
   const trList = Array.from(els.importRowsBody.querySelectorAll("tr"));
@@ -578,6 +679,11 @@ function collectImportRowsFromDom() {
 }
 
 async function handleRecognize() {
+  if (!isAdmin()) {
+    toast("仅管理员可以识别值班表", true);
+    return;
+  }
+
   const file = els.importImageFile.files?.[0];
   const weekStartDate = els.importWeekStart.value;
   const title = els.importTitle.value.trim() || "值班表导入";
@@ -615,6 +721,11 @@ async function handleRecognize() {
 }
 
 async function handleConfirmImport() {
+  if (!isAdmin()) {
+    toast("仅管理员可以导入值班表", true);
+    return;
+  }
+
   const weekStartDate = els.importWeekStart.value;
   const title = els.importTitle.value.trim() || "值班表导入";
   if (!weekStartDate) {
@@ -710,6 +821,65 @@ async function saveOvertime() {
   }
 }
 
+async function saveAvatar() {
+  try {
+    els.saveAvatarBtn.disabled = true;
+    const avatarDataUrl = await buildAvatarDataUrl(els.avatarFile.files?.[0]);
+    const data = await api("/api/me/avatar", {
+      method: "POST",
+      body: { avatarDataUrl }
+    });
+    persistUser(data.user);
+    els.avatarFile.value = "";
+    toast(data.message || "头像更新成功");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    els.saveAvatarBtn.disabled = false;
+  }
+}
+
+async function removeAvatar() {
+  try {
+    els.removeAvatarBtn.disabled = true;
+    const data = await api("/api/me/avatar", {
+      method: "DELETE"
+    });
+    persistUser(data.user);
+    els.avatarFile.value = "";
+    toast(data.message || "头像已移除");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    els.removeAvatarBtn.disabled = false;
+  }
+}
+
+async function changePassword() {
+  const body = {
+    currentPassword: els.currentPassword.value,
+    newPassword: els.newPassword.value,
+    confirmPassword: els.confirmNewPassword.value
+  };
+
+  try {
+    els.changePasswordBtn.disabled = true;
+    const data = await api("/api/auth/change-password", {
+      method: "POST",
+      body
+    });
+    if (data.user) {
+      persistUser(data.user);
+    }
+    clearPasswordForm();
+    toast(data.message || "密码修改成功");
+  } catch (error) {
+    toast(error.message, true);
+  } finally {
+    els.changePasswordBtn.disabled = false;
+  }
+}
+
 async function downloadCsv(endpoint, filename) {
   const resp = await fetch(endpoint);
   if (!resp.ok) {
@@ -766,6 +936,10 @@ function bindEvents() {
     if (!(target instanceof HTMLButtonElement)) return;
     applyTheme(target.dataset.themeName || "sunrise");
   });
+
+  els.saveAvatarBtn.addEventListener("click", saveAvatar);
+  els.removeAvatarBtn.addEventListener("click", removeAvatar);
+  els.changePasswordBtn.addEventListener("click", changePassword);
 
   els.recognizeBtn.addEventListener("click", handleRecognize);
   els.confirmImportBtn.addEventListener("click", handleConfirmImport);
