@@ -4,6 +4,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { PDFParse } = require("pdf-parse");
 const Tesseract = require("tesseract.js");
 
 const app = express();
@@ -910,6 +911,96 @@ function scoreRecognizedSlots(slots) {
   }, 0);
 }
 
+function extractTimeRangeFromCell(text) {
+  const tokens = allTimeTokensFromText(text);
+  if (tokens.length < 2) return null;
+  const startTime = normalizeTime(tokens[0]);
+  const endTime = normalizeTime(tokens[1]);
+  if (!startTime || !endTime) return null;
+  return { startTime, endTime };
+}
+
+function parseRecognizedSlotsFromPdfTable(table, weekStartDate) {
+  if (!Array.isArray(table) || !table.length) return [];
+
+  const recognizedSlots = [];
+  for (let i = 0; i < table.length; i += 1) {
+    const row = Array.isArray(table[i]) ? table[i].map((cell) => String(cell || "").trim()) : [];
+    const dayStartIndex = row.length - 7;
+    if (dayStartIndex < 1) continue;
+
+    const timeRange = extractTimeRangeFromCell(row[dayStartIndex - 1] || "");
+    if (!timeRange) continue;
+
+    const nameCells = row.slice(dayStartIndex, dayStartIndex + 7);
+    let phoneCells = new Array(7).fill("");
+
+    const nextRow = Array.isArray(table[i + 1]) ? table[i + 1].map((cell) => String(cell || "").trim()) : [];
+    const nextDayStartIndex = nextRow.length - 7;
+    const nextLabel = nextRow.slice(0, Math.max(nextDayStartIndex, 1)).join("");
+    if (nextDayStartIndex >= 1 && /电话|号码/.test(nextLabel)) {
+      phoneCells = nextRow.slice(nextDayStartIndex, nextDayStartIndex + 7);
+      i += 1;
+    }
+
+    for (let dayIndex = 0; dayIndex < 7; dayIndex += 1) {
+      const rawName = nameCells[dayIndex] || "";
+      const rawPhone = phoneCells[dayIndex] || "";
+      const name = normalizeDutyName(extractName(rawName) || rawName);
+      const phone = extractPhone(rawPhone);
+      if (!name && !phone) continue;
+
+      recognizedSlots.push({
+        weekday: dayIndex + 1,
+        weekdayLabel: getWeekdayLabel(dayIndex + 1),
+        date: addDays(weekStartDate, dayIndex),
+        startTime: timeRange.startTime,
+        endTime: timeRange.endTime,
+        name,
+        phone,
+        department: ""
+      });
+    }
+  }
+
+  return recognizedSlots;
+}
+
+async function recognizeScheduleFromPdfBuffer(pdfBuffer, weekStartDate) {
+  const parser = new PDFParse({ data: pdfBuffer });
+  try {
+    const tableResult = await parser.getTable();
+    const textResult = await parser.getText();
+    const tables = [];
+    for (const page of tableResult?.pages || []) {
+      for (const table of page?.tables || []) {
+        tables.push(table);
+      }
+    }
+
+    let bestSlots = [];
+    let bestScore = -1;
+    for (const table of tables) {
+      const slots = parseRecognizedSlotsFromPdfTable(table, weekStartDate);
+      const score = scoreRecognizedSlots(slots);
+      if (score > bestScore || (score === bestScore && slots.length > bestSlots.length)) {
+        bestScore = score;
+        bestSlots = slots;
+      }
+    }
+
+    const mergedSlots = buildFullWeekTemplate(weekStartDate, bestSlots);
+    return {
+      slots: mergedSlots,
+      score: scoreRecognizedSlots(bestSlots),
+      filledCount: mergedSlots.filter((slot) => slot.name || slot.phone).length,
+      rawTextPreview: String(textResult?.text || "").slice(0, 2000)
+    };
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+}
+
 async function recognizeScheduleByMultiPass(imageBuffer, weekStartDate) {
   const modes = [Tesseract.PSM.AUTO, Tesseract.PSM.SPARSE_TEXT];
   let best = null;
@@ -1041,25 +1132,26 @@ app.get("/api/schedule/current", authMiddleware, (_req, res) => {
 app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
   const title = String(req.body.title || "值班表导入").trim();
   const weekStartDate = String(req.body.weekStartDate || "").trim();
-  const imageDataUrl = String(req.body.imageDataUrl || "");
+  const fileDataUrl = String(req.body.fileDataUrl || req.body.imageDataUrl || "");
 
   if (!isValidDate(weekStartDate)) {
     return res.status(400).json({ message: "周起始日期格式错误，应为 YYYY-MM-DD" });
   }
-  if (!/^data:image\/[a-zA-Z0-9+.-]+;base64,/.test(imageDataUrl)) {
+  if (!/^data:(application\/pdf|image\/[a-zA-Z0-9+.-]+);base64,/.test(fileDataUrl)) {
     return res.status(400).json({ message: "请上传有效的图片文件" });
   }
 
-  let imageBuffer = null;
+  const mimeType = fileDataUrl.slice(5, fileDataUrl.indexOf(";")).toLowerCase();
+  let fileBuffer = null;
   try {
-    imageBuffer = Buffer.from(imageDataUrl.split(",")[1], "base64");
+    fileBuffer = Buffer.from(fileDataUrl.split(",")[1], "base64");
   } catch (_error) {
     return res.status(400).json({ message: "图片编码格式不正确" });
   }
-  if (!imageBuffer || !imageBuffer.length) {
+  if (!fileBuffer || !fileBuffer.length) {
     return res.status(400).json({ message: "图片内容为空" });
   }
-  if (imageBuffer.length < 15 * 1024) {
+  if (mimeType !== "application/pdf" && fileBuffer.length < 15 * 1024) {
     const slots = buildFullWeekTemplate(weekStartDate, []);
     return res.json({
       message: "图片过小或清晰度不足，已生成完整周模板，请按截图手工补充后导入",
@@ -1072,7 +1164,10 @@ app.post("/api/schedule/recognize", authMiddleware, async (req, res) => {
   }
 
   try {
-    const recognized = await recognizeScheduleByMultiPass(imageBuffer, weekStartDate);
+    const recognized =
+      mimeType === "application/pdf"
+        ? await recognizeScheduleFromPdfBuffer(fileBuffer, weekStartDate)
+        : await recognizeScheduleByMultiPass(fileBuffer, weekStartDate);
     const slots = recognized.slots || [];
     const filledCount = Number(recognized.filledCount || 0);
     return res.json({

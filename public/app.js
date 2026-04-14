@@ -19,6 +19,16 @@ const weekdayMap = {
   7: "星期日"
 };
 
+const importWeekdayMap = {
+  1: "\u5468\u4e00",
+  2: "\u5468\u4e8c",
+  3: "\u5468\u4e09",
+  4: "\u5468\u56db",
+  5: "\u5468\u4e94",
+  6: "\u5468\u516d",
+  7: "\u5468\u65e5"
+};
+
 const els = {
   toast: document.getElementById("toast"),
   authView: document.getElementById("authView"),
@@ -269,9 +279,9 @@ function renderImportRows() {
       (row, idx) => `
       <tr>
         <td>
-          <select data-field="weekday" data-idx="${idx}">
+          <select class="import-weekday-select" data-field="weekday" data-idx="${idx}">
             ${[1, 2, 3, 4, 5, 6, 7]
-              .map((n) => `<option value="${n}" ${Number(row.weekday) === n ? "selected" : ""}>${weekdayMap[n]}</option>`)
+              .map((n) => `<option value="${n}" ${Number(row.weekday) === n ? "selected" : ""}>${importWeekdayMap[n]}</option>`)
               .join("")}
           </select>
         </td>
@@ -403,10 +413,14 @@ async function handleRecognize() {
   try {
     els.recognizeBtn.disabled = true;
     els.recognizeResult.textContent = "识别中，请稍候（图片越清晰越快）...";
-    const imageDataUrl = await readDataUrl(file);
+    els.recognizeResult.textContent =
+      file.type === "application/pdf"
+        ? "\u6b63\u5728\u89e3\u6790 PDF\uff0c\u8bf7\u7a0d\u5019..."
+        : els.recognizeResult.textContent;
+    const fileDataUrl = await readDataUrl(file);
     const data = await api("/api/schedule/recognize", {
       method: "POST",
-      body: { title, weekStartDate, imageDataUrl }
+      body: { title, weekStartDate, fileDataUrl }
     });
     state.importDraft = data.slots || [];
     renderImportRows();

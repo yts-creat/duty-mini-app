@@ -281,6 +281,10 @@ th {
   color: #3d4b66;
 }
 
+.import-weekday-select {
+  min-width: 74px;
+}
+
 .warn {
   color: #9c2f1f;
   background: #fff4f1;
