@@ -356,6 +356,37 @@ function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
 }
 
+function getWordBounds(words) {
+  if (!Array.isArray(words) || !words.length) return null;
+  const minX = Math.min(...words.map((w) => w.x0));
+  const maxX = Math.max(...words.map((w) => w.x1));
+  const minY = Math.min(...words.map((w) => w.y0));
+  const maxY = Math.max(...words.map((w) => w.y1));
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    width: Math.max(maxX - minX, 1),
+    height: Math.max(maxY - minY, 1)
+  };
+}
+
+function filterDayAreaWords(words) {
+  const bounds = getWordBounds(words);
+  if (!bounds) return [];
+  const leftCutoff = bounds.minX + bounds.width * 0.18;
+  return words.filter((w) => w.cx >= leftCutoff);
+}
+
+function filterDutyBodyWords(words) {
+  const bounds = getWordBounds(words);
+  if (!bounds) return [];
+  const leftCutoff = bounds.minX + bounds.width * 0.18;
+  const topCutoff = bounds.minY + bounds.height * 0.14;
+  return words.filter((w) => w.cx >= leftCutoff && w.cy >= topCutoff);
+}
+
 function isLikelyPhoneChunk(text) {
   const raw = normalizeOcrText(text);
   if (!raw) return false;
@@ -430,7 +461,7 @@ function expandCentersTo7(seedCenters, words) {
 }
 
 function buildDayCentersByNameWords(words) {
-  const nameWords = words.filter((w) => extractName(w.text));
+  const nameWords = filterDayAreaWords(words).filter((w) => extractName(w.text));
   if (nameWords.length < 5) return null;
   const values = nameWords.map((w) => w.cx);
   for (const k of [7, 6, 5]) {
@@ -443,7 +474,9 @@ function buildDayCentersByNameWords(words) {
 }
 
 function buildDayCentersByDutyWords(words) {
-  const dutyWords = words.filter((w) => extractName(w.text) || isLikelyPhoneChunk(w.text));
+  const dutyWords = filterDayAreaWords(words).filter(
+    (w) => extractName(w.text) || isLikelyPhoneChunk(w.text)
+  );
   if (dutyWords.length < 10) return null;
   const values = dutyWords.map((w) => w.cx);
   for (const k of [7, 6, 5]) {
@@ -456,7 +489,7 @@ function buildDayCentersByDutyWords(words) {
 }
 
 function buildSlotStartYsByNameWords(words) {
-  const nameWords = words.filter((w) => extractName(w.text));
+  const nameWords = filterDutyBodyWords(words).filter((w) => extractName(w.text));
   if (nameWords.length < 4) return null;
   return runKMeans1D(
     nameWords.map((w) => w.cy),
@@ -465,7 +498,7 @@ function buildSlotStartYsByNameWords(words) {
 }
 
 function buildSlotStartYsByPhoneWords(words) {
-  const phoneWords = words.filter((w) => isLikelyPhoneChunk(w.text));
+  const phoneWords = filterDutyBodyWords(words).filter((w) => isLikelyPhoneChunk(w.text));
   if (phoneWords.length < 8) return null;
   return runKMeans1D(
     phoneWords.map((w) => w.cy),
@@ -489,18 +522,19 @@ function buildDefaultSlotStartYs(words) {
 }
 
 function buildDefaultDayCenters(words) {
-  if (!words.length) return null;
-  const minX = Math.min(...words.map((w) => w.x0));
-  const maxX = Math.max(...words.map((w) => w.x1));
-  const width = maxX - minX;
-  if (width < 300) return null;
+  const bounds = getWordBounds(words);
+  if (!bounds || bounds.width < 300) return null;
 
   const timeWords = words.filter((w) => allTimeTokensFromText(w.text).length > 0);
   const estimatedLeftByTime = timeWords.length
-    ? Math.max(...timeWords.map((w) => w.x1)) + width * 0.02
-    : minX + width * 0.18;
-  const dayAreaLeft = clamp(estimatedLeftByTime, minX + width * 0.12, minX + width * 0.4);
-  const dayWidth = (maxX - dayAreaLeft) / 7;
+    ? Math.max(...timeWords.map((w) => w.x1)) + bounds.width * 0.02
+    : bounds.minX + bounds.width * 0.18;
+  const dayAreaLeft = clamp(
+    estimatedLeftByTime,
+    bounds.minX + bounds.width * 0.14,
+    bounds.minX + bounds.width * 0.42
+  );
+  const dayWidth = (bounds.maxX - dayAreaLeft) / 7;
   if (dayWidth <= 0) return null;
 
   return Array.from({ length: 7 }, (_v, i) => dayAreaLeft + dayWidth * (i + 0.5));
@@ -521,6 +555,73 @@ function buildDayBoundaries(centers) {
     });
   }
   return rows;
+}
+
+function collectSeriesCandidates(seriesList, expectedLength) {
+  const seen = new Set();
+  const result = [];
+  for (const series of seriesList) {
+    if (!Array.isArray(series) || series.length !== expectedLength) continue;
+    if (series.some((v) => !Number.isFinite(v))) continue;
+    const sorted = series.slice().sort((a, b) => a - b);
+    const key = sorted.map((v) => Math.round(v * 10) / 10).join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(sorted);
+  }
+  return result;
+}
+
+function extractSlotsByLayout(validWords, weekStartDate, boundaries, slotYs) {
+  const slots = [];
+  for (let i = 0; i < TEMPLATE_TIME_SLOTS.length; i += 1) {
+    const startY = slotYs[i];
+    const prevY = i > 0 ? slotYs[i - 1] : startY - 180;
+    const nextY = i < TEMPLATE_TIME_SLOTS.length - 1 ? slotYs[i + 1] : startY + (startY - prevY);
+    const top = i > 0 ? (prevY + startY) / 2 : startY - (nextY - startY) * 0.35;
+    const bottom =
+      i < TEMPLATE_TIME_SLOTS.length - 1 ? (startY + nextY) / 2 : startY + (startY - prevY) * 0.65;
+    const mid = (top + bottom) / 2;
+
+    for (const day of boundaries) {
+      const cellWords = validWords.filter(
+        (w) => w.cx >= day.left && w.cx <= day.right && w.cy >= top && w.cy <= bottom
+      );
+      if (!cellWords.length) continue;
+      const sorted = cellWords.sort((a, b) => (a.cy === b.cy ? a.cx - b.cx : a.cy - b.cy));
+      const fullCellText = sorted.map((w) => w.text).join("");
+      const nameText = sorted
+        .filter((w) => w.cy <= mid)
+        .map((w) => w.text)
+        .join("");
+      const phoneText = sorted
+        .filter((w) => w.cy > mid)
+        .map((w) => w.text)
+        .join("");
+
+      const name = normalizeDutyName(extractName(nameText || fullCellText));
+      const phone = extractPhone(`${phoneText}${fullCellText}`);
+      if (!name && !phone) continue;
+
+      slots.push({
+        weekday: day.index,
+        weekdayLabel: day.label,
+        date: addDays(weekStartDate, day.index - 1),
+        startTime: TEMPLATE_TIME_SLOTS[i].startTime,
+        endTime: TEMPLATE_TIME_SLOTS[i].endTime,
+        name,
+        phone,
+        department: ""
+      });
+    }
+  }
+
+  const dedup = new Map();
+  for (const slot of slots) {
+    const key = `${slot.weekday}|${slot.startTime}|${slot.endTime}|${slot.name}|${slot.phone}`;
+    if (!dedup.has(key)) dedup.set(key, slot);
+  }
+  return Array.from(dedup.values());
 }
 
 function buildSlotStartYs(words) {
@@ -580,11 +681,18 @@ function buildFullWeekTemplate(weekStartDate, recognizedSlots) {
       map.set(key, slot);
       continue;
     }
-    const oldScore = Number(Boolean(old.name)) + Number(Boolean(old.phone));
-    const newScore = Number(Boolean(slot.name)) + Number(Boolean(slot.phone));
-    if (newScore > oldScore) {
-      map.set(key, slot);
-    }
+    const pickedPhone = isValidPhone(old.phone || "")
+      ? old.phone
+      : isValidPhone(slot.phone || "")
+        ? slot.phone
+        : old.phone || slot.phone || "";
+    map.set(key, {
+      ...old,
+      ...slot,
+      name: old.name || slot.name || "",
+      phone: pickedPhone,
+      department: old.department || slot.department || ""
+    });
   }
 
   const rows = [];
@@ -676,71 +784,45 @@ function parseSlotsFromScreenshot(words, weekStartDate) {
     return buildFullWeekTemplate(weekStartDate, []);
   }
 
-  const centers =
-    buildDayCenters(validWords) ||
-    buildDayCentersByNameWords(validWords) ||
-    buildDayCentersByDutyWords(validWords) ||
-    buildDefaultDayCenters(validWords);
-  const boundaries = buildDayBoundaries(centers);
-  const slotYs =
-    buildSlotStartYs(validWords) ||
-    buildSlotStartYsByNameWords(validWords) ||
-    buildSlotStartYsByPhoneWords(validWords) ||
-    buildDefaultSlotStartYs(validWords);
+  const dayCenterCandidates = collectSeriesCandidates(
+    [
+      buildDayCenters(validWords),
+      buildDayCentersByNameWords(validWords),
+      buildDayCentersByDutyWords(validWords),
+      buildDefaultDayCenters(validWords)
+    ],
+    7
+  );
+  const slotYCandidates = collectSeriesCandidates(
+    [
+      buildSlotStartYs(validWords),
+      buildSlotStartYsByNameWords(validWords),
+      buildSlotStartYsByPhoneWords(validWords),
+      buildDefaultSlotStartYs(validWords)
+    ],
+    TEMPLATE_TIME_SLOTS.length
+  );
 
-  if (!boundaries || !slotYs) {
+  if (!dayCenterCandidates.length || !slotYCandidates.length) {
     return buildFullWeekTemplate(weekStartDate, []);
   }
 
-  const slots = [];
-  for (let i = 0; i < TEMPLATE_TIME_SLOTS.length; i += 1) {
-    const startY = slotYs[i];
-    const prevY = i > 0 ? slotYs[i - 1] : startY - 180;
-    const nextY = i < TEMPLATE_TIME_SLOTS.length - 1 ? slotYs[i + 1] : startY + (startY - prevY);
-    const top = i > 0 ? (prevY + startY) / 2 : startY - (nextY - startY) * 0.35;
-    const bottom =
-      i < TEMPLATE_TIME_SLOTS.length - 1 ? (startY + nextY) / 2 : startY + (startY - prevY) * 0.65;
-    const mid = (top + bottom) / 2;
-
-    for (const day of boundaries) {
-      const cellWords = validWords.filter(
-        (w) => w.cx >= day.left && w.cx <= day.right && w.cy >= top && w.cy <= bottom
-      );
-      if (!cellWords.length) continue;
-      const sorted = cellWords.sort((a, b) => (a.cy === b.cy ? a.cx - b.cx : a.cy - b.cy));
-      const fullCellText = sorted.map((w) => w.text).join("");
-      const nameText = sorted
-        .filter((w) => w.cy <= mid)
-        .map((w) => w.text)
-        .join("");
-      const phoneText = sorted
-        .filter((w) => w.cy > mid)
-        .map((w) => w.text)
-        .join("");
-
-      const name = normalizeDutyName(extractName(nameText || fullCellText));
-      const phone = extractPhone(`${phoneText}${fullCellText}`);
-      if (!name && !phone) continue;
-
-      slots.push({
-        weekday: day.index,
-        weekdayLabel: day.label,
-        date: addDays(weekStartDate, day.index - 1),
-        startTime: TEMPLATE_TIME_SLOTS[i].startTime,
-        endTime: TEMPLATE_TIME_SLOTS[i].endTime,
-        name,
-        phone,
-        department: ""
-      });
+  let bestSlots = [];
+  let bestScore = -1;
+  for (const centers of dayCenterCandidates) {
+    const boundaries = buildDayBoundaries(centers);
+    if (!boundaries) continue;
+    for (const slotYs of slotYCandidates) {
+      const slots = extractSlotsByLayout(validWords, weekStartDate, boundaries, slotYs);
+      const score = scoreRecognizedSlots(slots);
+      if (score > bestScore || (score === bestScore && slots.length > bestSlots.length)) {
+        bestScore = score;
+        bestSlots = slots;
+      }
     }
   }
 
-  const dedup = new Map();
-  for (const slot of slots) {
-    const key = `${slot.weekday}|${slot.startTime}|${slot.endTime}|${slot.name}|${slot.phone}`;
-    if (!dedup.has(key)) dedup.set(key, slot);
-  }
-  return buildFullWeekTemplate(weekStartDate, Array.from(dedup.values()));
+  return buildFullWeekTemplate(weekStartDate, bestSlots);
 }
 
 function getCheckinWindow(slot, type) {
