@@ -4,6 +4,7 @@ const fs = require("fs");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
+const { Pool } = require("pg");
 const { PDFParse } = require("pdf-parse");
 const Tesseract = require("tesseract.js");
 
@@ -15,11 +16,15 @@ const ADMIN_ACCOUNT = process.env.ADMIN_ACCOUNT || "\u7ba1\u7406\u5458";
 const ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
 const ADMIN_DEPARTMENT = "\u7ba1\u7406\u5458";
 const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || "Admin12345";
-const DEFAULT_PROD_DB_PATH = "/app/storage/db.json";
+const DATABASE_URL = String(process.env.DATABASE_URL || "").trim();
+const USE_POSTGRES = Boolean(DATABASE_URL);
+const DEFAULT_PROD_DB_PATH = "/tmp/db.json";
 let DB_PATH =
   process.env.DB_PATH ||
   (IS_PROD ? DEFAULT_PROD_DB_PATH : path.join(__dirname, "data", "db.json"));
 const FALLBACK_DB_PATH = "/tmp/db.json";
+let dbPool = null;
+let cachedDb = null;
 
 const CHECK_WINDOW_MINUTES = 20;
 const WEEKDAY_LABELS = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
@@ -70,26 +75,81 @@ process.on("unhandledRejection", (reason) => {
   console.error("[UNHANDLED_REJECTION]", reason);
 });
 
-function ensureDbFile() {
+function createEmptyDb() {
+  return {
+    users: [],
+    dutySlots: [],
+    checkins: [],
+    overtimeEntries: [],
+    currentSchedule: null
+  };
+}
+
+function normalizeDbShape(db) {
+  return {
+    users: Array.isArray(db?.users) ? db.users : [],
+    dutySlots: Array.isArray(db?.dutySlots) ? db.dutySlots : Array.isArray(db?.schedules) ? db.schedules : [],
+    checkins: Array.isArray(db?.checkins) ? db.checkins : [],
+    overtimeEntries: Array.isArray(db?.overtimeEntries) ? db.overtimeEntries : [],
+    currentSchedule: db?.currentSchedule || null
+  };
+}
+
+function getLocalDbFilePaths() {
+  return [...new Set([
+    DB_PATH,
+    FALLBACK_DB_PATH,
+    path.join(__dirname, "data", "db.json")
+  ].filter(Boolean))];
+}
+
+function ensureLocalDbFile() {
   try {
     const dir = path.dirname(DB_PATH);
     if (!fs.existsSync(dir)) {
       fs.mkdirSync(dir, { recursive: true });
     }
     if (!fs.existsSync(DB_PATH)) {
-      const initial = {
-        users: [],
-        dutySlots: [],
-        checkins: [],
-        overtimeEntries: [],
-        currentSchedule: null
-      };
-      fs.writeFileSync(DB_PATH, JSON.stringify(initial, null, 2), "utf8");
+      fs.writeFileSync(DB_PATH, JSON.stringify(createEmptyDb(), null, 2), "utf8");
     }
   } catch (error) {
     if (IS_PROD && DB_PATH !== FALLBACK_DB_PATH) {
       DB_PATH = FALLBACK_DB_PATH;
-      ensureDbFile();
+      ensureLocalDbFile();
+      return;
+    }
+    throw error;
+  }
+}
+
+function readLocalDbFromPath(filePath) {
+  const raw = fs.readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+  return normalizeDbShape(JSON.parse(raw));
+}
+
+function loadSeedDbFromLocalFiles() {
+  for (const filePath of getLocalDbFilePaths()) {
+    if (!fs.existsSync(filePath)) continue;
+    try {
+      return readLocalDbFromPath(filePath);
+    } catch (_error) {
+    }
+  }
+  return createEmptyDb();
+}
+
+function writeLocalDbFile(payload) {
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2), "utf8");
+  } catch (error) {
+    if (IS_PROD && DB_PATH !== FALLBACK_DB_PATH) {
+      DB_PATH = FALLBACK_DB_PATH;
+      ensureLocalDbFile();
+      fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2), "utf8");
       return;
     }
     throw error;
@@ -97,40 +157,65 @@ function ensureDbFile() {
 }
 
 function readDb() {
-  const raw = fs.readFileSync(DB_PATH, "utf8").replace(/^\uFEFF/, "");
-  const db = JSON.parse(raw);
-  const normalized = {
-    users: Array.isArray(db.users) ? db.users : [],
-    dutySlots: Array.isArray(db.dutySlots) ? db.dutySlots : Array.isArray(db.schedules) ? db.schedules : [],
-    checkins: Array.isArray(db.checkins) ? db.checkins : [],
-    overtimeEntries: Array.isArray(db.overtimeEntries) ? db.overtimeEntries : [],
-    currentSchedule: db.currentSchedule || null
-  };
-  if (ensureBuiltinAdmin(normalized)) {
-    writeDb(normalized);
+  if (!cachedDb) {
+    throw new Error("Storage not initialized");
   }
-  return normalized;
+  return cachedDb;
 }
 
-function writeDb(db) {
-  const payload = {
-    users: db.users,
-    dutySlots: db.dutySlots,
-    checkins: db.checkins,
-    overtimeEntries: db.overtimeEntries,
-    currentSchedule: db.currentSchedule || null
-  };
-  try {
-    fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2), "utf8");
-  } catch (error) {
-    if (IS_PROD && DB_PATH !== FALLBACK_DB_PATH) {
-      DB_PATH = FALLBACK_DB_PATH;
-      ensureDbFile();
-      fs.writeFileSync(DB_PATH, JSON.stringify(payload, null, 2), "utf8");
-      return;
-    }
-    throw error;
+async function writeDb(db) {
+  const payload = normalizeDbShape(db);
+  ensureBuiltinAdmin(payload);
+  cachedDb = payload;
+
+  if (USE_POSTGRES) {
+    await dbPool.query(
+      `
+        insert into app_state (id, payload, updated_at)
+        values (1, $1::jsonb, now())
+        on conflict (id)
+        do update set payload = excluded.payload, updated_at = now()
+      `,
+      [JSON.stringify(payload)]
+    );
+    return;
   }
+
+  writeLocalDbFile(payload);
+}
+
+async function initStorage() {
+  if (USE_POSTGRES) {
+    dbPool = new Pool({
+      connectionString: DATABASE_URL,
+      ssl: IS_PROD ? { rejectUnauthorized: false } : false
+    });
+
+    await dbPool.query(`
+      create table if not exists app_state (
+        id integer primary key,
+        payload jsonb not null,
+        updated_at timestamptz not null default now()
+      )
+    `);
+
+    const result = await dbPool.query("select payload from app_state where id = 1 limit 1");
+    const initialDb =
+      result.rows[0]?.payload
+        ? normalizeDbShape(result.rows[0].payload)
+        : loadSeedDbFromLocalFiles();
+
+    ensureBuiltinAdmin(initialDb);
+    cachedDb = initialDb;
+    await writeDb(initialDb);
+    return;
+  }
+
+  ensureLocalDbFile();
+  const initialDb = loadSeedDbFromLocalFiles();
+  ensureBuiltinAdmin(initialDb);
+  cachedDb = initialDb;
+  writeLocalDbFile(initialDb);
 }
 
 function normalizePhone(value) {
@@ -1197,7 +1282,7 @@ app.post("/api/auth/register", async (req, res) => {
     createdAt: new Date().toISOString()
   };
   db.users.push(user);
-  writeDb(db);
+  await writeDb(db);
 
   const token = createToken(user);
   return res.status(201).json({
@@ -1268,12 +1353,12 @@ app.post("/api/auth/change-password", authMiddleware, async (req, res) => {
 
   user.passwordHash = await bcrypt.hash(newPassword, 10);
   user.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "密码修改成功", user: toPublicUser(user) });
 });
 
-app.post("/api/me/avatar", authMiddleware, (req, res) => {
+app.post("/api/me/avatar", authMiddleware, async (req, res) => {
   const avatarDataUrl = String(req.body.avatarDataUrl || "").trim();
   if (!avatarDataUrl) {
     return res.status(400).json({ message: "请上传头像图片" });
@@ -1300,12 +1385,12 @@ app.post("/api/me/avatar", authMiddleware, (req, res) => {
 
   user.avatarDataUrl = avatarDataUrl;
   user.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "头像更新成功", user: toPublicUser(user) });
 });
 
-app.delete("/api/me/avatar", authMiddleware, (req, res) => {
+app.delete("/api/me/avatar", authMiddleware, async (req, res) => {
   const db = readDb();
   const user = db.users.find((item) => item.id === req.user.id);
   if (!user) {
@@ -1314,7 +1399,7 @@ app.delete("/api/me/avatar", authMiddleware, (req, res) => {
 
   user.avatarDataUrl = "";
   user.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "头像已移除", user: toPublicUser(user) });
 });
@@ -1386,7 +1471,7 @@ app.post("/api/schedule/recognize", authMiddleware, adminOnlyMiddleware, async (
   }
 });
 
-app.post("/api/schedule/import", authMiddleware, adminOnlyMiddleware, (req, res) => {
+app.post("/api/schedule/import", authMiddleware, adminOnlyMiddleware, async (req, res) => {
   const title = String(req.body.title || "值班表导入").trim();
   const weekStartDate = String(req.body.weekStartDate || "").trim();
   const incomingSlots = Array.isArray(req.body.slots) ? req.body.slots : [];
@@ -1445,7 +1530,7 @@ app.post("/api/schedule/import", authMiddleware, adminOnlyMiddleware, (req, res)
   db.dutySlots = normalizedSlots;
   db.checkins = [];
   db.overtimeEntries = [];
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({
     message: "值班表导入成功，已清空历史签到与加班数据",
@@ -1489,7 +1574,7 @@ app.get("/api/my/overtime", authMiddleware, (req, res) => {
   });
 });
 
-app.post("/api/checkins/in", authMiddleware, (req, res) => {
+app.post("/api/checkins/in", authMiddleware, async (req, res) => {
   const slotId = String(req.body.slotId || "");
   const remark = String(req.body.remark || "").trim();
   if (!slotId) {
@@ -1518,12 +1603,12 @@ app.post("/api/checkins/in", authMiddleware, (req, res) => {
   record.checkInAt = now.toISOString();
   record.inRemark = remark;
   record.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "进站签到成功", checkin: record });
 });
 
-app.post("/api/checkins/out", authMiddleware, (req, res) => {
+app.post("/api/checkins/out", authMiddleware, async (req, res) => {
   const slotId = String(req.body.slotId || "");
   const remark = String(req.body.remark || "").trim();
   if (!slotId) {
@@ -1555,12 +1640,12 @@ app.post("/api/checkins/out", authMiddleware, (req, res) => {
   record.checkOutAt = now.toISOString();
   record.outRemark = remark;
   record.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "出站签到成功", checkin: record });
 });
 
-app.post("/api/overtime", authMiddleware, (req, res) => {
+app.post("/api/overtime", authMiddleware, async (req, res) => {
   const date = String(req.body.date || "").trim();
   const startTime = normalizeTime(req.body.startTime || "");
   const endTime = normalizeTime(req.body.endTime || "");
@@ -1594,12 +1679,12 @@ app.post("/api/overtime", authMiddleware, (req, res) => {
     updatedAt: new Date().toISOString()
   };
   db.overtimeEntries.push(entry);
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "加班记录已保存", entry });
 });
 
-app.post("/api/checkins/overtime", authMiddleware, (req, res) => {
+app.post("/api/checkins/overtime", authMiddleware, async (req, res) => {
   const slotId = String(req.body.slotId || "");
   const overtimeStart = normalizeTime(req.body.overtimeStart || "");
   const overtimeMinutes = Number(req.body.overtimeMinutes || 0);
@@ -1626,7 +1711,7 @@ app.post("/api/checkins/overtime", authMiddleware, (req, res) => {
   record.overtimeMinutes = overtimeMinutes;
   record.overtimeRemark = overtimeRemark;
   record.updatedAt = new Date().toISOString();
-  writeDb(db);
+  await writeDb(db);
 
   return res.json({ message: "加班信息已保存", checkin: record });
 });
@@ -1756,9 +1841,19 @@ app.get("*", (_req, res) => {
   res.sendFile(path.join(__dirname, "public", "index.html"));
 });
 
-ensureDbFile();
-readDb();
-app.listen(PORT, () => {
-  console.log(`Server running at http://localhost:${PORT}`);
-  console.log(`DB_PATH=${DB_PATH}`);
-});
+initStorage()
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`Server running at http://localhost:${PORT}`);
+      console.log(`STORAGE=${USE_POSTGRES ? "postgres" : "file"}`);
+      if (USE_POSTGRES) {
+        console.log("DATABASE_URL configured");
+      } else {
+        console.log(`DB_PATH=${DB_PATH}`);
+      }
+    });
+  })
+  .catch((error) => {
+    console.error("[STORAGE_INIT_ERROR]", error?.message || error);
+    process.exit(1);
+  });

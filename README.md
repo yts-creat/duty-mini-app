@@ -31,7 +31,8 @@ npm start
 - `NODE_ENV=production`
 - `PORT=3000`
 - `JWT_SECRET=请替换为高强度随机字符串`
-- `DB_PATH=/app/storage/db.json`（Render 持久化磁盘推荐）
+- `DATABASE_URL=你的 Postgres 连接串（推荐使用 Supabase）`
+- `DB_PATH=/tmp/db.json`（未配置数据库时仅作临时文件回退）
 
 参考文件：`.env.example`
 
@@ -39,11 +40,10 @@ npm start
 1. 代码推送到 GitHub。
 2. Render 新建 Web Service，连接仓库。
 3. Runtime 选 Docker（仓库已包含 `Dockerfile`、`render.yaml`）。
-4. 使用 `Starter` 或更高套餐，并为 Web Service 挂载 Persistent Disk。
-5. 磁盘挂载路径设置为 `/app/storage`，环境变量 `DB_PATH=/app/storage/db.json`。
-6. 配置环境变量 `JWT_SECRET`、`NODE_ENV=production`。
-7. 完成部署后使用 `https://xxx.onrender.com` 访问。
+4. 在 Render 环境变量中配置 `DATABASE_URL`、`JWT_SECRET`、`NODE_ENV=production`。
+5. 推荐保持 Render Web Service 为免费实例，把长期数据交给 Supabase Postgres 保存。
+6. 完成部署后使用 `https://xxx.onrender.com` 访问。
 
 ## 说明
 - 截图识别依赖 OCR，建议上传清晰、完整、正向截图，导入前请在页面里人工校对。
-- 当前 Render 配置已改为持久化磁盘路径；若仍使用 `/tmp` 或 Free Web Service，则服务重启后会丢失数据。
+- 当前版本优先使用 `DATABASE_URL` 指向的 Postgres 数据库；若未配置数据库才会退回本地文件。
