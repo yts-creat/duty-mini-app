@@ -31,7 +31,7 @@ npm start
 - `NODE_ENV=production`
 - `PORT=3000`
 - `JWT_SECRET=请替换为高强度随机字符串`
-- `DB_PATH=/tmp/db.json`（Render 推荐）
+- `DB_PATH=/app/storage/db.json`（Render 持久化磁盘推荐）
 
 参考文件：`.env.example`
 
@@ -39,9 +39,11 @@ npm start
 1. 代码推送到 GitHub。
 2. Render 新建 Web Service，连接仓库。
 3. Runtime 选 Docker（仓库已包含 `Dockerfile`、`render.yaml`）。
-4. 配置环境变量 `JWT_SECRET`、`NODE_ENV=production`。
-5. 完成部署后使用 `https://xxx.onrender.com` 访问。
+4. 使用 `Starter` 或更高套餐，并为 Web Service 挂载 Persistent Disk。
+5. 磁盘挂载路径设置为 `/app/storage`，环境变量 `DB_PATH=/app/storage/db.json`。
+6. 配置环境变量 `JWT_SECRET`、`NODE_ENV=production`。
+7. 完成部署后使用 `https://xxx.onrender.com` 访问。
 
 ## 说明
 - 截图识别依赖 OCR，建议上传清晰、完整、正向截图，导入前请在页面里人工校对。
-- 当前数据存储为文件，若平台磁盘非持久化，服务重启后可能丢失数据；生产建议改为数据库。
+- 当前 Render 配置已改为持久化磁盘路径；若仍使用 `/tmp` 或 Free Web Service，则服务重启后会丢失数据。

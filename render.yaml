@@ -2,8 +2,12 @@
   - type: web
     name: duty-mini-app
     runtime: docker
-    plan: free
+    plan: starter
     autoDeploy: true
+    disk:
+      name: duty-data
+      mountPath: /app/storage
+      sizeGB: 1
     envVars:
       - key: NODE_ENV
         value: production
@@ -12,4 +16,4 @@
       - key: JWT_SECRET
         generateValue: true
       - key: DB_PATH
-        value: /tmp/db.json
+        value: /app/storage/db.json

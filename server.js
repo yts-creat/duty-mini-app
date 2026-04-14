@@ -15,9 +15,10 @@ const ADMIN_ACCOUNT = process.env.ADMIN_ACCOUNT || "\u7ba1\u7406\u5458";
 const ADMIN_NAME = "\u7cfb\u7edf\u7ba1\u7406\u5458";
 const ADMIN_DEPARTMENT = "\u7ba1\u7406\u5458";
 const ADMIN_DEFAULT_PASSWORD = process.env.ADMIN_PASSWORD || "Admin12345";
+const DEFAULT_PROD_DB_PATH = "/app/storage/db.json";
 let DB_PATH =
   process.env.DB_PATH ||
-  (IS_PROD ? "/tmp/db.json" : path.join(__dirname, "data", "db.json"));
+  (IS_PROD ? DEFAULT_PROD_DB_PATH : path.join(__dirname, "data", "db.json"));
 const FALLBACK_DB_PATH = "/tmp/db.json";
 
 const CHECK_WINDOW_MINUTES = 20;
